@@ -1,20 +1,35 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
-#include <stdbool.h>
+
+typedef enum {
+    MENU,
+    MAIN_INFO,
+    EXIT
+} Screen;
 
 void printMenu();
 
-void flushInput() {
+void flushInput() 
+{
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
 }
 
-void printTime() {
-    system("clear");
+void clearScreen()
+{
+    #ifdef _WIN32
+        system("cls");
+    #else 
+        system("clear");
+    #endif
+}
 
+void printTime() 
+{
     time_t t = time(NULL);
     struct tm lcltm = *localtime(&t);
+    
     printf("\n┌───────────────────────────┐\n");
     printf("│  %d-%02d-%02d %02d:%02d:%02d      │\n", 
         lcltm.tm_year + 1900, lcltm.tm_mon + 1, lcltm.tm_mday,
@@ -22,61 +37,74 @@ void printTime() {
     printf("└───────────────────────────┘\n");
 }
 
-void printMainInfo() {
-    while (1)
-    {
-        system("clear");
+Screen showMenu()
+{
+    clearScreen();
 
-        printf("\033[47;30m");
-        printf("  ★ MAIN INFO ★  \n");
-        printf("\033[0m");
+    system("clear");
+    printf("Choose one from the options below:\n");
+    printf(" [1] Main information\n");
+    printf(" [0] Exit\n");
+    printf("\nEnter choice: ");
 
-        printf("This utility helps you with creation of a bootable USB flashdrive from a .iso file.\n\n");
-        printf(" [Z] Back to Menu\n");
-        printf("Enter choice: ");
+    int input = getchar();
+    flushInput();
 
-        int input = getchar();
-        flushInput();
+    if (input == '1') return MAIN_INFO;
+    if (input == '0') return EXIT;
 
-        if (input == 'z' || input == 'Z')
-            printMenu();
-    }
+    printf("\nWrong option. Press Enter to continue...");
+    getchar();
+
+    return MENU;
 }
 
-void printMenu() {
-    while (1) {
-        system("clear");
-        printf("Choose one from the options below:\n");
-        printf(" [1] Main information\n");
-        printf(" [0] Exit\n");
-        printf("Enter choice: ");
+Screen showMainInfo() 
+{
+    clearScreen();
 
-        int input = getchar();
-        flushInput();
-
-        if (input == '1') 
-        {
-            printTime();
-            printMainInfo();
-        } 
-        else if (input == '0') 
-        {
-            exit(0);
-        } else 
-        {
-            printf("Wrong option, try again.\n\n");
-        }
-    }
-}
-
-int main(int argc, char* argv[]) {
-    printTime();
+    printf("\033[47;30m");
+    printf("  ★ MAIN INFO ★  \n");
+    printf("\033[0m");
 
     printf("===================================================\n");
     printf(" Welcome to the \"Bootable Flashdrive\" Utility!\n");
     printf("===================================================\n\n");
 
-    printMenu();
+    printf("This utility helps you with creation of a bootable USB flashdrive from a .iso file.\n\n");
+    printf(" [Z] Back to Menu\n");
+    printf("Enter choice: ");
+
+    int input = getchar();
+    flushInput();
+
+    if (input == 'z' || input == 'Z')
+        return MENU;
+
+    return MAIN_INFO;
+}
+
+int main(int argc, char* argv[]) 
+{
+    Screen current = MENU;
+
+    while (current != EXIT)
+    {
+        switch (current)
+        {
+            case MENU:
+                current = showMenu();
+                break;
+            case MAIN_INFO:
+                current = showMainInfo();
+                break;
+            default:
+                current = EXIT;
+        }
+    }
+
+    clearScreen();
+    printf("Thank you, goodbye\n");
 
     return 0;
 }
