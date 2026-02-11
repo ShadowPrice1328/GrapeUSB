@@ -1,6 +1,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
 
 typedef enum {
     MENU,
@@ -8,7 +12,126 @@ typedef enum {
     EXIT
 } Screen;
 
-void printMenu();
+int run(char *const argv[])
+{
+    pid_t pid = fork();
+
+    if (pid == 0)
+    {
+        perror(argv[0]);
+    }
+    else if (pid > 0)
+    {
+        perror("fork");
+        return -1;
+    }   
+    
+    int status;
+    waitpid(pid, &status, 0);
+
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    
+    return -1;
+}
+
+void unmountUSB(const char *dev)
+{
+    char part[64];
+    snprintf(part, sizeof(part), "%s1", dev);
+
+    char *unmount[] = {"unmount", part, NULL};
+    run(unmount);
+}
+
+void formatUSB(const char *dev)
+{
+    char *wipe[] = {"wipefs", "-a", (char*)dev, NULL};
+    run(wipe);
+
+    char *label[] = {"parted", (char*)dev, "--script", "mklabel", "gpt", NULL};
+    run(label);
+
+    char *part[] = 
+    {
+        "parted", (char*)dev, "--script",
+        "mkpart", "primary", "fat32", "4MiB", "100%",
+        "set", "1", "esp", "on", NULL
+    };
+    run(part);
+
+    char partdev[64];
+    snprintf(partdev, sizeof(partdev), "%s1", dev);
+
+    char *mkfs[] = {"mkfs.vfat", "-F32", partdev, NULL};
+    run(mkfs);
+}
+
+void mountISO(const char *iso)
+{
+    mkdir("/mnt/iso", 0755);
+    
+    char *mount[] = {"mount", (char*)iso, "/mnt/iso", NULL};
+    run(mount);
+}
+
+void mountUSB(const char *dev)
+{
+    mkdir("/mnt/usb", 0755);
+
+    char part[64];
+    snprintf(part, sizeof(part), "%s1", dev);
+
+    char *mount[] = {"mount", part, "/mnt/usb", NULL};
+    run(mount);
+}
+
+void copyFiles() {
+    char *copy[] = {"cp", "-rT", "/mnt/iso", "/mnt/usb", NULL};
+    run(copy);
+}
+
+void splitWimIfNeeded() {
+    char *split[] = {
+        "wimlib-imagex", "split",
+        "/mnt/iso/sources/install.wim",
+        "/mnt/usb/sources/install.swm",
+        "3800", NULL
+    };
+    run(split);
+}
+
+void cleanup() {
+    char *u1[] = {"umount", "/mnt/iso", NULL};
+    char *u2[] = {"umount", "/mnt/usb", NULL};
+
+    run(u1);
+    run(u2);
+}
+
+void checkRoot()
+{
+    if (geteuid() != 0)
+    {
+        printf("Run this program as root (sudo).\n");
+        exit(1);
+    }
+}
+
+void create_bootable(const char *iso, const char *dev) {
+    checkRoot();
+
+    unmountUSB(dev);
+    formatUSB(dev);
+
+    mountISO(iso);
+    mountUSB(dev);
+
+    copyFiles();
+    splitWimIfNeeded();
+
+    cleanup();
+}
 
 void flushInput() 
 {
@@ -86,6 +209,14 @@ Screen showMainInfo()
 
 int main(int argc, char* argv[]) 
 {
+    checkRoot();
+
+    if (argc != 3)
+    {
+        printf("Usage: %s windows.iso /dev/sdX\n", argv[0]);
+        return 1;
+    }
+
     Screen current = MENU;
 
     while (current != EXIT)
@@ -105,6 +236,6 @@ int main(int argc, char* argv[])
 
     clearScreen();
     printf("Thank you, goodbye\n");
-
+    
     return 0;
 }
