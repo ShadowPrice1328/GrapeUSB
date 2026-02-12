@@ -36,20 +36,37 @@ int run(char *const argv[])
     if (pid == 0)
     {
         execvp(argv[0], argv);
-        perror("execvp");
-        exit(1);
+        perror("execvp failed");
+        exit(127);
     }
     else if (pid > 0)
     {
         int status;
-        waitpid(pid, &status, 0);
+        if (waitpid(pid, &status, 0) == -1)
+        {
+            perror("waitpid failed");
+            return -1;
+        }
+
         if (WIFEXITED(status))
-            return WEXITSTATUS(status);
+        {
+            int exitCode = WEXITSTATUS(status);
+            if (exitCode != 0)
+                fprintf(stderr, "Command failed with exit code %d: %s\n", exitCode, argv[0]);
+
+            return exitCode;
+        }
+        else if (WIFSIGNALED(status))
+        {
+            fprintf(stderr, "Command killed by signal %d: %s\n", WTERMSIG(status), argv[0]);
+            return -1;
+        }
+
         return -1;
     }
     else
     {
-        perror("fork");
+        perror("fork failed");
         return -1;
     }
 }
@@ -235,7 +252,7 @@ Screen showDevices(UsbDevice *dev_data)
 {
     clearScreen();
 
-    printf("\033[47;30m  ★ DEVICES ★  \n\033[0m");
+    printf("\033[47;30m  ★ DEVICES ★  \n\033[0m\n");
 
     UsbDevice devs[16];
     int n = getUsbDevices(devs, 16);
@@ -289,19 +306,14 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
 {
     clearScreen();
 
-    printf("\033[47;30m  ★ CREATE BOOTABLE USB FLASHDRIVE ★  \n\033[0m");
+    printf("\033[47;30m  ★ CREATE BOOTABLE USB FLASHDRIVE ★  \n\n\033[0m");
 
-    printf("%s\n", dev_data->name);
-    if (isoType == ISO_WINDOWS)
-    printf("ISO Type: Windows\n");
-    else if (isoType == ISO_LINUX)
-        printf("ISO Type: Linux\n");
-    else
-        printf("ISO Type: Unknown\n");
+    const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
+    printf("ISO Type: %s\n", isoStr);
 
     if (dev_data->name[0] == '\0' || dev_data == NULL)
     {
-        printf("No USB device selected!\n");
+        printf("No USB device selected!\n\n");
         printf("Please select a USB drive first.\n\n");
 
         printf(" [1] Show available devices\n");
@@ -332,10 +344,7 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
         return BEGIN;
     }
 
-    printf("Selected flashdrive: %s (%s, %s)\n", dev_data->name, dev_data->size, dev_data->model);
-
-    const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
-    printf("ISO Type: %s\n", isoStr);
+    printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->name, dev_data->size, dev_data->model);
 
     printf("Is it correct? [Y/N]: ");
     int input = getchar();
@@ -413,7 +422,7 @@ Screen showMenu()
 {
     clearScreen();
 
-    printf("Choose one from the options below:\n");
+    printf("Choose one from the options below:\n\n");
     printf(" [1] About\n");
     printf(" [2] Show available devices\n");
     printf(" [3] Begin\n");
@@ -442,7 +451,7 @@ Screen showMainInfo()
 
     printf("\033[47;30m");
     printf("  ★ ABOUT ★  \n");
-    printf("\033[0m");
+    printf("\033[0m\n");
 
     printf("===================================================\n");
     printf(" Welcome to the \"GrapeUSB\" Utility!\n");
@@ -558,6 +567,6 @@ int main(int argc, char* argv[])
     
     return 0;
 
-    // TO DO: інформація про тип ISO в бегін, БАГ: якщо нема флешки то в BEGIN якась хуйня, усі можливі застереження, дебілостійкість, mqueue,є
+    // TO DO: усі можливі застереження, дебілостійкість, mqueue,є
     //  роллбек після кожного етапу, lsblk може давати пробіли
 }
