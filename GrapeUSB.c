@@ -175,7 +175,7 @@ int getUsbDevices(UsbDevice *list, int max)
         sscanf(line, "%63s %d %15s %127s %31s",
                name, &rm, size, model, type);
 
-        if (rm == 1 && strcmp(type, "disk") == 0) 
+        if (rm == 1 && strcmp(type, "disk") == 0)  // TO DO: дуплікати disk/part забрати
         {
             strcpy(list[count].name, name);
             strcpy(list[count].size, size);
@@ -286,6 +286,18 @@ Screen showBeginCreation(UsbDevice *dev_data)
     return BEGIN;
 }
 
+int fileExists(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+int isValidISO(const char *iso)
+{
+    char *blkid[] = {"blkid", "-o", "value", "-s", "TYPE", (char*)iso, NULL};
+    return run(blkid) == 0;
+}
+
 void create_bootable(const char *iso, const char *dev) {
     checkRoot();
 
@@ -296,7 +308,7 @@ void create_bootable(const char *iso, const char *dev) {
     mountUSB(dev);
 
     copyFiles();
-    splitWimIfNeeded();
+    //splitWimIfNeeded(); TO DO: перевірка коли треба юзати
 
     cleanup();
 }
@@ -385,15 +397,34 @@ Screen showMainInfo()
     return MAIN_INFO;
 }
 
+int validateIsoArgument(const char* iso)
+{
+    if (!fileExists(iso)) {
+        fprintf(stderr, "ISO file does not exist: %s\n", iso);
+        return 0;
+    }
+
+    if (!isValidISO(iso))
+    {
+        fprintf(stderr, "ISO file is not valid: %s\n", iso);
+        return 0;
+    }
+
+    return 1;
+}
+
 int main(int argc, char* argv[]) 
 {
     checkRoot();
 
     if (argc != 3)
     {
-        printf("Usage: %s windows.iso /dev/sdX (or \"0\" if not known)\n", argv[0]);
+        printf("Usage: %s path/to/.iso /dev/sdX (or \"0\" if not known)\n", argv[0]);
         return 1;
     }
+
+    if (!validateIsoArgument(argv[1]))
+        return 1;
 
     UsbDevice dev_data;
     char *dev = NULL;
@@ -435,4 +466,7 @@ int main(int argc, char* argv[])
     printf("Thank you, goodbye =)\n");
     
     return 0;
+
+    // TO DO: усі можливі застереження, для лінукса, дебілостійкість, mqueue,є
+    //  роллбек після кожного етапу, lsblk може давати пробіли
 }
