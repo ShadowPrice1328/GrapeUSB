@@ -75,7 +75,31 @@ The tool provides an interactive terminal interface, automatic USB device detect
 ## Build
 
 ```bash
-gcc main.c -o grapeusb
+gcc GrapeUSB.c -o grapeusb
 ```
 ## Usage
 
+```bash
+sudo ./grapeusb path/to/image.iso /dev/sdX
+```
+or
+
+```bash
+sudo ./grapeusb path/to/image.iso 0
+```
+0 enables interactive USB drive selection.
+
+## Safety
+
+- Only removable drives are displayed
+- Explicit confirmations before destructive operations
+- Automatic unmount enforcement
+- Partition validation
+- Cleanup after failure
+
+## Planned Features
+
+- ISO type auto-detection
+- Linux distribution detection
+- Progress indicators
+- Logging system
