@@ -22,6 +22,12 @@ typedef struct {
     char model[128];
 } UsbDevice;
 
+typedef enum {
+    ISO_UNKNOWN,
+    ISO_WINDOWS,
+    ISO_LINUX
+} IsoType;
+
 void flushInput();
 
 int run(char *const argv[])
@@ -80,12 +86,47 @@ void formatUSB(const char *dev)
     run(mkfs);
 }
 
-void mountISO(const char *iso)
+int mountISO(const char *iso)
 {
     mkdir("/mnt/iso", 0755);
     
     char *mount[] = {"mount", (char*)iso, "/mnt/iso", NULL};
-    run(mount);
+    return run(mount);
+}
+
+void unmountISO()
+{
+    char *umount_cmd[] = {"umount", "/mnt/iso", NULL};
+    run(umount_cmd);
+}
+
+int isWindowsISO()
+{
+    return access("/mnt/iso/sources/install.wim", F_OK) == 0 ||
+           access("/mnt/iso/sources/install.esd", F_OK) == 0;
+}
+
+int isLinuxISO()
+{
+    return access("/mnt/iso/casper", F_OK) == 0 ||
+           access("/mnt/iso/isolinux", F_OK) == 0 ||
+           access("/mnt/iso/boot", F_OK) == 0;
+}
+
+IsoType detectISOType(const char* iso)
+{
+    if (!mountISO(iso))
+        return ISO_UNKNOWN;
+
+    IsoType type = ISO_UNKNOWN;
+
+    if (isWindowsISO())
+        type = ISO_WINDOWS;
+    else if (isLinuxISO())
+        type = ISO_LINUX;
+    
+    unmountISO();
+    return type;
 }
 
 void mountUSB(const char *dev)
@@ -397,20 +438,33 @@ Screen showMainInfo()
     return MAIN_INFO;
 }
 
-int validateIsoArgument(const char* iso)
+int validateISOArgument(const char* iso, IsoType* type)
 {
     if (!fileExists(iso)) {
         fprintf(stderr, "ISO file does not exist: %s\n", iso);
-        return 0;
+        return 1;
     }
 
     if (!isValidISO(iso))
     {
         fprintf(stderr, "ISO file is not valid: %s\n", iso);
-        return 0;
+        return 1;
     }
 
-    return 1;
+    *type = detectISOType(iso);
+    if (type == ISO_UNKNOWN)
+    {
+        fprintf(stderr, "ISO file type is unsupported: %s\n", iso);
+        return 1;
+    }
+
+    if (*type == ISO_WINDOWS)
+        printf("Detected Windows ISO\n");
+
+    if (*type == ISO_LINUX)
+        printf("Detected Linux ISO\n");
+
+    return 0;
 }
 
 int main(int argc, char* argv[]) 
@@ -423,7 +477,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    if (!validateIsoArgument(argv[1]))
+    IsoType isoType;
+
+    if (!validateISOArgument(argv[1], &isoType))
         return 1;
 
     UsbDevice dev_data;
