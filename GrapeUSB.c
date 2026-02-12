@@ -115,7 +115,7 @@ int isLinuxISO()
 
 IsoType detectISOType(const char* iso)
 {
-    if (!mountISO(iso))
+    if (mountISO(iso) != 0)
         return ISO_UNKNOWN;
 
     IsoType type = ISO_UNKNOWN;
@@ -285,47 +285,70 @@ Screen showDevices(UsbDevice *dev_data)
 }
 
 
-Screen showBeginCreation(UsbDevice *dev_data) 
+Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType) 
 {
     clearScreen();
 
     printf("\033[47;30m  ★ CREATE BOOTABLE USB FLASHDRIVE ★  \n\033[0m");
 
-    if (dev_data->name[0] == '\0') 
+    printf("%s\n", dev_data->name);
+    if (isoType == ISO_WINDOWS)
+    printf("ISO Type: Windows\n");
+    else if (isoType == ISO_LINUX)
+        printf("ISO Type: Linux\n");
+    else
+        printf("ISO Type: Unknown\n");
+
+    if (dev_data->name[0] == '\0' || dev_data == NULL)
     {
         printf("No USB device selected!\n");
-        printf("Consider selecting it from the list.\n\n");
+        printf("Please select a USB drive first.\n\n");
 
         printf(" [1] Show available devices\n");
         printf(" [Z] Back to Menu\n");
 
         printf("\nEnter choice: ");
-
         int input = getchar();
         flushInput();
 
-        if (input == '1')
-            return DEVICES;
-        else if (input == 'z' || input == 'Z')
-            return MENU;
+        if (input == '1') return DEVICES;
+        if (input == 'z' || input == 'Z') return MENU;
 
         return BEGIN;
     }
 
-    printf("Selected flashdrive: %s (%s, %s)\n\n",
-           dev_data->name, dev_data->size, dev_data->model);
-    printf("Is it correct? [Y/N]: ");
+    if (isoType == ISO_UNKNOWN)
+    {
+        printf("No valid ISO detected!\n");
+        printf("Please provide a valid Windows or Linux ISO.\n\n");
+        printf(" [Z] Back to Menu\n");
 
+        printf("\nEnter choice: ");
+        int input = getchar();
+        flushInput();
+
+        if (input == 'z' || input == 'Z') return MENU;
+
+        return BEGIN;
+    }
+
+    printf("Selected flashdrive: %s (%s, %s)\n", dev_data->name, dev_data->size, dev_data->model);
+
+    const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
+    printf("ISO Type: %s\n", isoStr);
+
+    printf("Is it correct? [Y/N]: ");
     int input = getchar();
     flushInput();
 
     if (input == 'y' || input == 'Y')
         return START;
-    else if (input == 'n' || input == 'N')
+    if (input == 'n' || input == 'N')
         return DEVICES;
-    
+
     return BEGIN;
 }
+
 
 int fileExists(const char *path)
 {
@@ -452,7 +475,7 @@ int validateISOArgument(const char* iso, IsoType* type)
     }
 
     *type = detectISOType(iso);
-    if (type == ISO_UNKNOWN)
+    if (*type == ISO_UNKNOWN)
     {
         fprintf(stderr, "ISO file type is unsupported: %s\n", iso);
         return 1;
@@ -477,12 +500,12 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    IsoType isoType;
+    IsoType isoType = ISO_UNKNOWN;
 
-    if (!validateISOArgument(argv[1], &isoType))
+    if (validateISOArgument(argv[1], &isoType) == 1)
         return 1;
 
-    UsbDevice dev_data;
+    UsbDevice dev_data = {0};
     char *dev = NULL;
 
     if (strcmp(argv[2], "0") != 0) {
@@ -508,10 +531,22 @@ int main(int argc, char* argv[])
                 current = showDevices(&dev_data);
                 break;
             case BEGIN:
-                current = showBeginCreation(&dev_data);
+                current = showBeginCreation(&dev_data, isoType);
                 break;
             case START:
-                //
+                if (dev_data.name[0] == '\0') {
+                    printf("No USB device selected! Press Enter...\n");
+                    getchar();
+                    flushInput();
+                    current = DEVICES;
+                    break;
+                }
+
+                // create_bootable(argv[1], dev_data.name);
+                // printf("\nBootable USB creation complete! Press Enter...\n");
+                // getchar();
+                // flushInput();
+                // current = MENU;
                 break;
             default:
                 current = EXIT;
@@ -523,6 +558,6 @@ int main(int argc, char* argv[])
     
     return 0;
 
-    // TO DO: усі можливі застереження, для лінукса, дебілостійкість, mqueue,є
+    // TO DO: інформація про тип ISO в бегін, БАГ: якщо нема флешки то в BEGIN якась хуйня, усі можливі застереження, дебілостійкість, mqueue,є
     //  роллбек після кожного етапу, lsblk може давати пробіли
 }
