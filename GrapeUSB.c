@@ -274,6 +274,13 @@ int getUsbDevices(UsbDevice *list, int max)
     return count;
 }
 
+int getCharInput()
+{
+    int c = getchar();
+    flushInput();
+    return c;
+}
+
 Screen showDevices(UsbDevice *dev_data) 
 {
     clearScreen();
@@ -288,8 +295,8 @@ Screen showDevices(UsbDevice *dev_data)
         printf("No USB flash drives detected.\n\n");
         printf(" [Z] Back to Menu\n");
         printf("\nEnter choice: ");
-        int input = getchar();
-        flushInput();
+
+        int input = getCharInput();
         if (input == 'z' || input == 'Z') return MENU;
         return DEVICES;
     }
@@ -311,8 +318,7 @@ Screen showDevices(UsbDevice *dev_data)
     }
 
     printf("\n [1-%d] Select device\n [Z] Back to Menu\n\nEnter choice: ", n);
-    int input = getchar();
-    flushInput();
+    int input = getCharInput();
 
     if (input >= '1' && input <= '0' + n) 
     {
@@ -346,8 +352,7 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
         printf(" [Z] Back to Menu\n");
 
         printf("\nEnter choice: ");
-        int input = getchar();
-        flushInput();
+        int input = getCharInput();
 
         if (input == '1') return DEVICES;
         if (input == 'z' || input == 'Z') return MENU;
@@ -362,8 +367,7 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
         printf(" [Z] Back to Menu\n");
 
         printf("\nEnter choice: ");
-        int input = getchar();
-        flushInput();
+        int input = getCharInput();
 
         if (input == 'z' || input == 'Z') return MENU;
 
@@ -373,8 +377,7 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
     printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->name, dev_data->size, dev_data->model);
 
     printf("Is it correct? [Y/N]: ");
-    int input = getchar();
-    flushInput();
+    int input = getCharInput();
 
     if (input == 'y' || input == 'Y')
         return START;
@@ -455,8 +458,7 @@ Screen showMenu()
     printf(" [Z] Exit\n");
     printf("\nEnter choice: ");
 
-    int input = getchar();
-    flushInput();
+    int input = getCharInput();
 
     if (input == '1') return MAIN_INFO;
     if (input == 'z' || input == 'Z') return EXIT;
@@ -487,8 +489,7 @@ Screen showMainInfo()
     printf(" [Z] Back to Menu\n");
     printf("\nEnter choice: ");
 
-    int input = getchar();
-    flushInput();
+    int input = getCharInput();
 
     if (input == 'z' || input == 'Z')
         return MENU;
