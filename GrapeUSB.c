@@ -80,27 +80,34 @@ void unmountUSB(const char *dev)
     run(unmount);
 }
 
-void formatUSB(const char *dev)
+int formatUSB(const char *dev)
 {
-    char *wipe[] = {"wipefs", "-a", (char*)dev, NULL};
-    run(wipe);
+    char part[64];
 
-    char *label[] = {"parted", (char*)dev, "--script", "mklabel", "gpt", NULL};
-    run(label);
-
-    char *part[] = 
+    if (snprintf(part, sizeof(part), "%s1", dev) >= sizeof(part))
     {
-        "parted", (char*)dev, "--script",
-        "mkpart", "primary", "fat32", "4MiB", "100%",
-        "set", "1", "esp", "on", NULL
+        fprintf(stderr, "Device path too long\n");
+        return -1;
+    }
+
+    char *cmds[][13] = 
+    {
+        {"wipefs", "-a", (char*)dev, NULL},
+        {"parted", (char*)dev, "--script", "mklabel", "gpt", NULL},
+        {"parted", (char*)dev, "--script", "mkpart", "primary", "fat32", "4MiB", "100%", "set", "1", "esp", "on", NULL},
+        {"mkfs.vfat", "-F32", part, NULL}
     };
-    run(part);
 
-    char partdev[64];
-    snprintf(partdev, sizeof(partdev), "%s1", dev);
+    for (int i; i < 4; i++)
+    {
+        if (run(cmds[i]) != 0)        
+        {
+            fprintf(stderr, "Failed to execute command in formatUSB: %s\n", cmds[i][0]);
+            return -1;
+        }
+    }
 
-    char *mkfs[] = {"mkfs.vfat", "-F32", partdev, NULL};
-    run(mkfs);
+    return 0;
 }
 
 int mountISO(const char *iso)
@@ -157,9 +164,28 @@ void mountUSB(const char *dev)
     run(mount);
 }
 
-void copyFiles() {
+int copyFiles() 
+{
+    if (access("/mnt/iso", R_OK) != 0)
+    {
+        fprintf(stderr, "ISO not mounted or not readable\n");
+        return -1;
+    }
+
+    if (access("/mnt/usb", R_OK) != 0)
+    {
+        fprintf(stderr, "USB not mounted or not readable\n");
+        return -1;
+    }
+
     char *copy[] = {"cp", "-rT", "/mnt/iso", "/mnt/usb", NULL};
-    run(copy);
+    if (run(copy) != 0)
+    {
+        fprintf(stderr, "Failed to copy files from ISO to USB\n");
+        return -1;
+    }
+
+    return 0;
 }
 
 void splitWimIfNeeded() {
