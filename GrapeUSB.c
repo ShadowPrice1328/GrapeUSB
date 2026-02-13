@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <string.h>
 
+#define CMD_COUNT (sizeof(cmds) / sizeof(cmds[0]))
+
 typedef enum {
     MENU,
     MAIN_INFO,
@@ -98,7 +100,7 @@ int formatUSB(const char *dev)
         {"mkfs.vfat", "-F32", part, NULL}
     };
 
-    for (int i; i < 4; i++)
+    for (int i = 0; i < CMD_COUNT; i++)
     {
         if (run(cmds[i]) != 0)        
         {
@@ -227,7 +229,12 @@ void clearScreen()
 int getUsbDevices(UsbDevice *list, int max)
 {
     int pipefd[2];
-    pipe(pipefd); // pipe opening
+
+    if (pipe(pipefd) == -1)
+    {
+        perror("pipe failed");
+        return 0;
+    }
 
     pid_t pid = fork();
 
@@ -256,14 +263,16 @@ int getUsbDevices(UsbDevice *list, int max)
         char name[64], size[16], model[128], type[32];
         int rm;
 
-        sscanf(line, "%63s %d %15s %127s %31s",
-               name, &rm, size, model, type);
+        if (sscanf(line, "%63s %d %15s %127s %31s",
+               name, &rm, size, model, type) != 5)
+               continue;
 
-        if (rm == 1 && strcmp(type, "disk") == 0)  // TO DO: дуплікати disk/part забрати
+        if (rm == 1 && strcmp(type, "disk") == 0)
         {
-            strcpy(list[count].name, name);
-            strcpy(list[count].size, size);
-            strcpy(list[count].model, model);
+            snprintf(list[count].name, sizeof(list[count].name), "%s", name);
+            snprintf(list[count].size, sizeof(list[count].size), "%s", size);
+            snprintf(list[count].model, sizeof(list[count].model), "%s", model);
+
             count++;
         }
     }
@@ -343,7 +352,7 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
     const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
     printf("ISO Type: %s\n", isoStr);
 
-    if (dev_data->name[0] == '\0' || dev_data == NULL)
+    if (dev_data == NULL || dev_data->name[0] == '\0')
     {
         printf("No USB device selected!\n\n");
         printf("Please select a USB drive first.\n\n");
