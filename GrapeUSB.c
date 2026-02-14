@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <string.h>
+#include "jsmn.h"
 
 #define CMD_COUNT (sizeof(cmds) / sizeof(cmds[0]))
 
@@ -238,12 +239,13 @@ int getUsbDevices(UsbDevice *list, int max)
 
     pid_t pid = fork();
 
-    if (pid == 0) { // child process goes to lsblk
+    if (pid == 0) // child process goes to lsblk
+    { 
         dup2(pipefd[1], STDOUT_FILENO); // now lsblk goes from console to pipe
         close(pipefd[0]);
         close(pipefd[1]);
 
-        execlp("lsblk", "lsblk", "-rpo",
+        execlp("lsblk", "lsblk", "-J", "-d", "-o",
                "NAME,RM,SIZE,MODEL,TYPE", NULL);
 
         perror("execlp");
@@ -252,33 +254,76 @@ int getUsbDevices(UsbDevice *list, int max)
 
     close(pipefd[1]);
 
-    FILE *fp = fdopen(pipefd[0], "r");
-    if (!fp) return 0;
+    char buffer[8192];
+    ssize_t len = read(pipefd[0], buffer, sizeof(buffer) - 1);
+    close(pipefd[0]);
+    waitpid(pid, NULL, 0);
 
-    char line[512];
+    if (len <= 0)
+        return 0;
+
+    buffer[len] = '\0';
+
+    jsmn_parser parser;
+    jsmntok_t tokens[256];
+
+    jsmn_init(&parser);
+    int token_count = jsmn_parse(&parser, buffer, len, tokens, 256);
+
+    if (token_count < 0)
+        return 0;
+
     int count = 0;
 
-    while (fgets(line, sizeof(line), fp) && count < max) 
+    for (int i = 0; i < token_count && count < max; i++) 
     {
-        char name[64], size[16], model[128], type[32];
-        int rm;
-
-        if (sscanf(line, "%63s %d %15s %127s %31s",
-               name, &rm, size, model, type) != 5)
-               continue;
-
-        if (rm == 1 && strcmp(type, "disk") == 0)
+        if (tokens[i].type == JSMN_OBJECT) 
         {
-            snprintf(list[count].name, sizeof(list[count].name), "%s", name);
-            snprintf(list[count].size, sizeof(list[count].size), "%s", size);
-            snprintf(list[count].model, sizeof(list[count].model), "%s", model);
+            char name[64] = "", size[32] = "", model[128] = "", type[32] = "";
+            int rm = 0;
+            
+            int obj_size = tokens[i].size; 
+            int j = i + 1;
 
-            count++;
+            for (int k = 0; k < obj_size; k++) 
+            {
+                int key_len = tokens[j].end - tokens[j].start;
+                char *key = &buffer[tokens[j].start];
+
+                jsmntok_t *val = &tokens[j + 1];
+                int val_len = val->end - val->start;
+                char *val_ptr = &buffer[val->start];
+
+                if (strncmp(key, "name", key_len) == 0)
+                    snprintf(name, sizeof(name), "%.*s", val_len, val_ptr);
+                else if (strncmp(key, "size", key_len) == 0)
+                    snprintf(size, sizeof(size), "%.*s", val_len, val_ptr);
+                else if (strncmp(key, "model", key_len) == 0)
+                    snprintf(model, sizeof(model), "%.*s", val_len, val_ptr);
+                else if (strncmp(key, "type", key_len) == 0)
+                    snprintf(type, sizeof(type), "%.*s", val_len, val_ptr);
+                else if (strncmp(key, "rm", key_len) == 0) 
+                {
+                    if (strncmp(val_ptr, "true", 4) == 0 || strncmp(val_ptr, "1", 1) == 0)
+                        rm = 1;
+                    else
+                        rm = 0;
+                }
+
+                j += 2; 
+            }
+
+            if (strcmp(type, "disk") == 0 && rm == 1) 
+            {
+                strncpy(list[count].name, name, sizeof(list[count].name));
+                strncpy(list[count].size, size, sizeof(list[count].size));
+                strncpy(list[count].model, model, sizeof(list[count].model));
+                count++;
+            }
+            
+            i = j - 1;
         }
     }
-
-    fclose(fp);
-    waitpid(pid, NULL, 0);
 
     return count;
 }
