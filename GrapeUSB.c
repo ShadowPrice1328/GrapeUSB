@@ -110,10 +110,10 @@ int formatUSB(UsbDevice *dev_data)
 
     char part[64];
 
-    if (snprintf(part, sizeof(part), "%s", dev_data->name) >= sizeof(part))
-    {
-        fprintf(stderr, "Device path too long\n");
-        return -1;
+    if (strstr(dev_data->name, "nvme") != NULL || strstr(dev_data->name, "mmcblk") != NULL) {
+        snprintf(part, sizeof(part), "%sp1", dev_data->name);
+    } else {
+        snprintf(part, sizeof(part), "%s1", dev_data->name);
     }
 
     char *cmds[][9] = 
@@ -204,14 +204,20 @@ int mountUSB(UsbDevice *dev_data)
             return -1;
         }
     }
-    else unmountUSB(dev_data);
+    else
+    {
+        char *unmount_cmd[] = {"umount", "-f", dev_data->name, NULL}; 
+        if (run(unmount_cmd) != 0)
+            return -1;
+    }
 
     char part_path[128];
 
-    if (strncmp(dev_data->name, "/dev/nvme", 4) == 0)
+    if (strstr(dev_data->name, "nvme") != NULL || strstr(dev_data->name, "mmcblk") != NULL) {
         snprintf(part_path, sizeof(part_path), "%sp1", dev_data->name);
-    else
+    } else {
         snprintf(part_path, sizeof(part_path), "%s1", dev_data->name);
+    }
 
     char *mount[] = {"mount", "-o", "rw,flush", part_path, MNT_USB_PATH, NULL};
     
@@ -262,7 +268,7 @@ int copyFiles(IsoType type)
             return -1;
 
         char wim_path[256];
-        snprintf(wim_path, sizeof(wim_path), "%s/souces/install.wim", MNT_ISO_PATH);
+        snprintf(wim_path, sizeof(wim_path), "%s/sources/install.wim", MNT_ISO_PATH);
 
         if (access(wim_path, F_OK) == 0)
         {
@@ -557,8 +563,7 @@ void create_bootable(const char *iso, UsbDevice *dev) {
     mountISO(iso);
     mountUSB(dev);
 
-    copyFiles();
-    //splitWimIfNeeded(); TO DO: перевірка коли треба юзати
+    copyFiles(detectISOType(iso));
 
     cleanup();
 }
