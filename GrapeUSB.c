@@ -9,6 +9,8 @@
 #include "jsmn.h"
 
 #define CMD_COUNT (sizeof(cmds) / sizeof(cmds[0]))
+#define MNT_ISO_PATH "/mnt/iso"
+#define MNT_USB_PATH "/mnt/usb"
 
 typedef enum {
     MENU,
@@ -98,21 +100,29 @@ int unmountUSB(UsbDevice *dev_data)
     return result;
 }
 
-int formatUSB(const char *dev)
+int formatUSB(UsbDevice *dev_data)
 {
+    if (!findUsbByName(dev_data->name, dev_data))
+    {
+        fprintf(stderr, "Error: USB device %s not found.\n", dev_data->name);
+        return -1;
+    }
+
     char part[64];
 
-    if (snprintf(part, sizeof(part), "%s1", dev) >= sizeof(part))
+    if (snprintf(part, sizeof(part), "%s", dev_data->name) >= sizeof(part))
     {
         fprintf(stderr, "Device path too long\n");
         return -1;
     }
 
-    char *cmds[][13] = 
+    char *cmds[][9] = 
     {
-        {"wipefs", "-a", (char*)dev, NULL},
-        {"parted", (char*)dev, "--script", "mklabel", "gpt", NULL},
-        {"parted", (char*)dev, "--script", "mkpart", "primary", "fat32", "4MiB", "100%", "set", "1", "esp", "on", NULL},
+        {"wipefs", "-a", (char*)dev_data->name, NULL},
+        {"parted", (char*)dev_data->name, "--script", "mklabel", "gpt", NULL},
+        {"parted", (char*)dev_data->name, "--script", "mkpart", "primary", "fat32", "4MiB", "100%", NULL},
+        {"parted", "-s", (char*)dev_data->name, "set", "1", "esp", "on", NULL},
+        {"udevadm", "settle", NULL},
         {"mkfs.vfat", "-F32", part, NULL}
     };
 
@@ -130,10 +140,23 @@ int formatUSB(const char *dev)
 
 int mountISO(const char *iso)
 {
-    mkdir("/mnt/iso", 0755);
     
-    char *mount[] = {"mount", (char*)iso, "/mnt/iso", NULL};
-    return run(mount);
+    if (access(MNT_ISO_PATH, F_OK) != 0)
+    {
+        if (mkdir(MNT_ISO_PATH, 0755) != 0)
+        {
+            perror("Failed to create mount point while mounting ISO");
+            return -1;
+        }
+    }
+    
+    char *mount[] = {"mount", "-o", "loop,ro", (char*)iso, MNT_ISO_PATH, NULL};
+
+    int res = run(mount);
+    if (res != 0)
+        fprintf(stderr, "Failed to mount ISO: %s\n", iso);
+    
+    return res;
 }
 
 void unmountISO()
@@ -171,35 +194,31 @@ IsoType detectISOType(const char* iso)
     return type;
 }
 
-void mountUSB(const char *dev)
+int mountUSB(UsbDevice *dev_data)
 {
-    mkdir("/mnt/usb", 0755);
-
-    char part[64];
-    snprintf(part, sizeof(part), "%s1", dev);
-
-    char *mount[] = {"mount", part, "/mnt/usb", NULL};
-    run(mount);
-}
-
-int copyFiles() 
-{
-    if (access("/mnt/iso", R_OK) != 0)
+    if (access(MNT_USB_PATH, F_OK) != 0)
     {
-        fprintf(stderr, "ISO not mounted or not readable\n");
-        return -1;
+        if (mkdir(MNT_USB_PATH, 0755) != 0)
+        {
+            perror("Failed to create mount point");
+            return -1;
+        }
     }
+    else unmountUSB(dev_data);
 
-    if (access("/mnt/usb", R_OK) != 0)
-    {
-        fprintf(stderr, "USB not mounted or not readable\n");
-        return -1;
-    }
+    char part_path[128];
 
-    char *copy[] = {"cp", "-rT", "/mnt/iso", "/mnt/usb", NULL};
-    if (run(copy) != 0)
+    if (strncmp(dev_data->name, "/dev/nvme", 4) == 0)
+        snprintf(part_path, sizeof(part_path), "%sp1", dev_data->name);
+    else
+        snprintf(part_path, sizeof(part_path), "%s1", dev_data->name);
+
+    char *mount[] = {"mount", "-o", "rw,flush", part_path, MNT_USB_PATH, NULL};
+    
+    int res = run(mount);
+    if (res != 0)
     {
-        fprintf(stderr, "Failed to copy files from ISO to USB\n");
+        fprintf(stderr, "Failed to mount USB to %s\n", part_path);
         return -1;
     }
 
@@ -209,11 +228,66 @@ int copyFiles()
 void splitWimIfNeeded() {
     char *split[] = {
         "wimlib-imagex", "split",
-        "/mnt/iso/sources/install.wim",
-        "/mnt/usb/sources/install.swm",
+        MNT_ISO_PATH "/sources/install.wim",
+        MNT_USB_PATH "/sources/install.swm",
         "3800", NULL
     };
     run(split);
+}
+
+int copyFiles(IsoType type) 
+{
+    if (access(MNT_ISO_PATH, R_OK) != 0)
+    {
+        fprintf(stderr, "ISO not mounted or not readable\n");
+        return -1;
+    }
+
+    if (access(MNT_USB_PATH, R_OK) != 0)
+    {
+        fprintf(stderr, "USB not mounted or not readable\n");
+        return -1;
+    }
+
+    if (type == ISO_WINDOWS)
+    {
+        char *copy_base[] = {
+            "rsync", "-ah", "--progress", 
+            "--exclude", "sources/install.wim", 
+            "--exclude", "sources/install.esd", 
+            MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL
+        };
+
+        if (run(copy_base) != 0) 
+            return -1;
+
+        char wim_path[256];
+        snprintf(wim_path, sizeof(wim_path), "%s/souces/install.wim", MNT_ISO_PATH);
+
+        if (access(wim_path, F_OK) == 0)
+        {
+            struct stat st;
+            stat(wim_path, &st);
+            if (st.st_size > 4294967295LL)
+            {
+                splitWimIfNeeded(); 
+            }
+            else
+            {
+                char *copy_wim[] = {"cp", wim_path, MNT_USB_PATH "/sources/", NULL};
+                run(copy_wim);
+            }
+        }
+    }
+    else
+    {
+        char *copy_linux[] = {"rsync", "-ah", "--progress", MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL};
+        if (run(copy_linux) != 0) return -1;
+    }
+
+    system("sync");
+
+    return 0;
 }
 
 void cleanup() {
@@ -324,7 +398,7 @@ int getUsbDevices(UsbDevice *list, int max)
                     else
                         rm = 0;
                 }
-                else if (strncmp(mountpoint, "mountpount", key_len) == 0)
+                else if (strncmp(mountpoint, "mountpoint", key_len) == 0)
                     snprintf(mountpoint, sizeof(mountpoint), "%.*s", val_len, val_ptr);
 
                 j += 2; 
@@ -478,10 +552,10 @@ int isValidISO(const char *iso)
 
 void create_bootable(const char *iso, UsbDevice *dev) {
     unmountUSB(dev);
-    formatUSB(dev->name);
+    formatUSB(dev);
 
     mountISO(iso);
-    mountUSB(dev->name);
+    mountUSB(dev);
 
     copyFiles();
     //splitWimIfNeeded(); TO DO: перевірка коли треба юзати
@@ -653,7 +727,7 @@ int main(int argc, char* argv[])
                     break;
                 }
 
-                // create_bootable(argv[1], dev_data.name);
+                // create_bootable(argv[1], dev_data);
                 // printf("\nBootable USB creation complete! Press Enter...\n");
                 // getchar();
                 // flushInput();
