@@ -32,6 +32,7 @@ typedef enum {
 } IsoType;
 
 void flushInput();
+int findUsbByName(const char *name, UsbDevice *devOut);
 
 int run(char *const argv[])
 {
@@ -74,13 +75,27 @@ int run(char *const argv[])
     }
 }
 
-void unmountUSB(const char *dev)
+int unmountUSB(UsbDevice *dev_data)
 {
-    char part[64];
-    snprintf(part, sizeof(part), "%s1", dev);
+    if (!findUsbByName(dev_data->name, dev_data))
+    {
+        fprintf(stderr, "Error: USB device %s not found.\n", dev_data->name);
+        return -1;
+    }
+    
+    char device_path[128];
+    snprintf(device_path, sizeof(device_path), "/dev/%s", dev_data->name);
 
-    char *unmount[] = {"umount", part, NULL};
-    run(unmount);
+
+    char *unmount_cmd[] = {"umount", "-f", device_path, NULL}; 
+    
+    int result = run(unmount_cmd);
+    
+    if (result != 0) {
+        printf("Notice: Could not unmount %s, it might already be unmounted.\n", device_path);
+    }
+
+    return result;
 }
 
 int formatUSB(const char *dev)
@@ -246,7 +261,7 @@ int getUsbDevices(UsbDevice *list, int max)
         close(pipefd[1]);
 
         execlp("lsblk", "lsblk", "-J", "-d", "-o",
-               "NAME,RM,SIZE,MODEL,TYPE", NULL);
+               "NAME,RM,SIZE,MODEL,TYPE,MOUNTPOINT", NULL);
 
         perror("execlp");
         exit(1);
@@ -279,7 +294,7 @@ int getUsbDevices(UsbDevice *list, int max)
     {
         if (tokens[i].type == JSMN_OBJECT) 
         {
-            char name[64] = "", size[32] = "", model[128] = "", type[32] = "";
+            char name[64] = "", size[32] = "", model[128] = "", type[32] = "", mountpoint[256] = "";
             int rm = 0;
             
             int obj_size = tokens[i].size; 
@@ -309,11 +324,18 @@ int getUsbDevices(UsbDevice *list, int max)
                     else
                         rm = 0;
                 }
+                else if (strncmp(mountpoint, "mountpount", key_len) == 0)
+                    snprintf(mountpoint, sizeof(mountpoint), "%.*s", val_len, val_ptr);
 
                 j += 2; 
             }
 
-            if (strcmp(type, "disk") == 0 && rm == 1) 
+            int is_system = (strcmp(mountpoint, "/") == 0 || 
+                            strcmp(mountpoint, "/boot") == 0);
+
+            
+
+            if (strcmp(type, "disk") == 0 && rm == 1 && !is_system) 
             {
                 strncpy(list[count].name, name, sizeof(list[count].name));
                 strncpy(list[count].size, size, sizeof(list[count].size));
@@ -454,14 +476,12 @@ int isValidISO(const char *iso)
     return run(blkid) == 0;
 }
 
-void create_bootable(const char *iso, const char *dev) {
-    checkRoot();
-
+void create_bootable(const char *iso, UsbDevice *dev) {
     unmountUSB(dev);
-    formatUSB(dev);
+    formatUSB(dev->name);
 
     mountISO(iso);
-    mountUSB(dev);
+    mountUSB(dev->name);
 
     copyFiles();
     //splitWimIfNeeded(); TO DO: перевірка коли треба юзати
@@ -598,7 +618,8 @@ int main(int argc, char* argv[])
     UsbDevice dev_data = {0};
     char *dev = NULL;
 
-    if (strcmp(argv[2], "0") != 0) {
+    if (strcmp(argv[2], "0") != 0) 
+    {
         dev = argv[2];
 
         if (!findUsbByName(dev, &dev_data))
@@ -649,5 +670,5 @@ int main(int argc, char* argv[])
     return 0;
 
     // TO DO: усі можливі застереження, дебілостійкість, mqueue,є
-    //  роллбек після кожного етапу, lsblk може давати пробіли
+    //  роллбек після кожного етапу
 }
