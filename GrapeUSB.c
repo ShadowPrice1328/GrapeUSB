@@ -573,11 +573,8 @@ int findUsbByName(const char *name, UsbDevice *devOut) {
         {
             *devOut = list[i];
 
-            if (strncmp(devOut->name, "/dev/", 5) == 0)
-                snprintf(devOut->dev_path, sizeof(devOut->dev_path), "%s", devOut->name);
-            else
-                snprintf(devOut->dev_path, sizeof(devOut->dev_path), "/dev/%s", devOut->name);
-
+            strncpy(devOut->dev_path, full_path, sizeof(devOut->dev_path));
+            
             if (strstr(devOut->name, "nvme") != NULL || strstr(devOut->name, "mmcblk") != NULL)
                 snprintf(devOut->part_path, sizeof(devOut->part_path), "%sp1", devOut->part_path);
             else 
