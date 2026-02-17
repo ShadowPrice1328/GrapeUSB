@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <sys/statvfs.h>
 #include "jsmn.h"
 
 #define CMD_COUNT (sizeof(cmds) / sizeof(cmds[0]))
@@ -77,6 +78,35 @@ int run(char *const argv[])
         perror("fork failed");
         return -1;
     }
+}
+
+int hasEnoughSpace(const char *isoPath, UsbDevice *dev) 
+{
+    struct stat st;
+
+    if (stat(isoPath, &st) != 0) 
+    {
+        perror("stat ISO failed");
+        return 0;
+    }
+
+    long long isoSize = st.st_size;
+    
+    char sysfs_path[256];
+    snprintf(sysfs_path, sizeof(sysfs_path), "/sys/class/block/%s/size", dev->name);
+    
+    FILE *f = fopen(sysfs_path, "r");
+    if (!f) return 1;
+
+    long long blocks;
+    fscanf(f, "%lld", &blocks);
+    fclose(f);
+
+    long long devSize = blocks * 512;
+
+    printf("ISO size: %lld bytes, USB size: %lld bytes\n", isoSize, devSize);
+
+    return devSize > isoSize;
 }
 
 int unmountUSB(UsbDevice *dev_data)
@@ -574,7 +604,7 @@ int findUsbByName(const char *name, UsbDevice *devOut) {
             *devOut = list[i];
 
             strncpy(devOut->dev_path, full_path, sizeof(devOut->dev_path));
-            
+
             if (strstr(devOut->name, "nvme") != NULL || strstr(devOut->name, "mmcblk") != NULL)
                 snprintf(devOut->part_path, sizeof(devOut->part_path), "%sp1", devOut->part_path);
             else 
@@ -710,21 +740,48 @@ int main(int argc, char* argv[])
                 current = showBeginCreation(&dev_data, isoType);
                 break;
             case START:
-                if (dev_data.name[0] == '\0') {
-                    printf("No USB device selected! Press Enter...\n");
-                    getchar();
-                    flushInput();
+                if (dev_data.name[0] == '\0') 
+                {
                     current = DEVICES;
                     break;
                 }
 
-                printf("All data will be ERASED from %s\n\n", dev_data.name);
-                printf("Continue?");
-                // create_bootable(argv[1], dev_data);
-                // printf("\nBootable USB creation complete! Press Enter...\n");
-                // getchar();
-                // flushInput();
-                // current = MENU;
+                if (!hasEnoughSpace(argv[1], &dev_data)) 
+                {
+                    printf("\033[1;31mError: Not enough space on %s!\033[0m\n", dev_data.dev_path);
+                    printf("Press Enter to go back...");
+                    getchar();
+                    current = DEVICES;
+                    break;
+                }
+
+                clearScreen();
+                printf("\033[1;31m!!! WARNING: ALL DATA ON %s WILL BE ERASED !!!\033[0m\n\n", dev_data.dev_path);
+                printf("Selected ISO: %s\n", argv[1]);
+                printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data.dev_path, dev_data.size, dev_data.model);
+                printf("Are you absolutely sure? [Y/N]: ");
+                
+                int input = getCharInput();
+                
+                if (input == 'y' || input == 'Y') 
+                {
+                    printTime();
+                    printf("\n>>> Starting the process. This may take a while...\n");
+
+                    create_bootable(argv[1], &dev_data);
+
+                    printTime();
+                    printf("\n\033[1;32m★ Success! Bootable USB created. ★\033[0m\n");
+                    printf("Press Enter to return to menu...");
+                    getchar();
+                    current = MENU;
+                } 
+                else 
+                {
+                    printf("Operation cancelled.\n");
+                    sleep(1);
+                    current = MENU;
+                }
                 break;
             default:
                 current = EXIT;
