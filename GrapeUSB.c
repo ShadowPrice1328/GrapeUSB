@@ -25,6 +25,8 @@ typedef struct {
     char name[64];
     char size[16];
     char model[128];
+    char dev_path[64];
+    char part_path[64];
 } UsbDevice;
 
 typedef enum {
@@ -79,51 +81,26 @@ int run(char *const argv[])
 
 int unmountUSB(UsbDevice *dev_data)
 {
-    if (!findUsbByName(dev_data->name, dev_data))
-    {
-        fprintf(stderr, "Error: USB device %s not found.\n", dev_data->name);
-        return -1;
-    }
-    
-    char device_path[128];
-    snprintf(device_path, sizeof(device_path), "/dev/%s", dev_data->name);
-
-
-    char *unmount_cmd[] = {"umount", "-f", device_path, NULL}; 
+    char *unmount_cmd[] = {"umount", "-f", dev_data->dev_path, NULL}; 
     
     int result = run(unmount_cmd);
     
-    if (result != 0) {
-        printf("Notice: Could not unmount %s, it might already be unmounted.\n", device_path);
-    }
+    if (result != 0)
+        printf("Notice: Could not unmount %s, it might already be unmounted.\n", dev_data->dev_path);
 
     return result;
 }
 
 int formatUSB(UsbDevice *dev_data)
 {
-    if (!findUsbByName(dev_data->name, dev_data))
-    {
-        fprintf(stderr, "Error: USB device %s not found.\n", dev_data->name);
-        return -1;
-    }
-
-    char part[64];
-
-    if (strstr(dev_data->name, "nvme") != NULL || strstr(dev_data->name, "mmcblk") != NULL) {
-        snprintf(part, sizeof(part), "%sp1", dev_data->name);
-    } else {
-        snprintf(part, sizeof(part), "%s1", dev_data->name);
-    }
-
     char *cmds[][9] = 
     {
-        {"wipefs", "-a", (char*)dev_data->name, NULL},
-        {"parted", (char*)dev_data->name, "--script", "mklabel", "gpt", NULL},
-        {"parted", (char*)dev_data->name, "--script", "mkpart", "primary", "fat32", "4MiB", "100%", NULL},
-        {"parted", "-s", (char*)dev_data->name, "set", "1", "esp", "on", NULL},
+        {"wipefs", "-a", dev_data->dev_path, NULL},
+        {"parted", dev_data->dev_path, "--script", "mklabel", "gpt", NULL},
+        {"parted", dev_data->dev_path, "--script", "mkpart", "primary", "fat32", "4MiB", "100%", NULL},
+        {"parted", "-s", dev_data->dev_path, "set", "1", "esp", "on", NULL},
         {"udevadm", "settle", NULL},
-        {"mkfs.vfat", "-F32", part, NULL}
+        {"mkfs.vfat", "-F32", dev_data->part_path, NULL}
     };
 
     for (int i = 0; i < CMD_COUNT; i++)
@@ -161,21 +138,24 @@ int mountISO(const char *iso)
 
 void unmountISO()
 {
-    char *umount_cmd[] = {"umount", "/mnt/iso", NULL};
+    char *umount_cmd[] = {"umount", MNT_ISO_PATH, NULL};
     run(umount_cmd);
 }
 
 int isWindowsISO()
 {
-    return access("/mnt/iso/sources/install.wim", F_OK) == 0 ||
-           access("/mnt/iso/sources/install.esd", F_OK) == 0;
+    return access(MNT_ISO_PATH "/sources/install.wim", F_OK) == 0 ||
+           access(MNT_ISO_PATH "/sources/install.esd", F_OK) == 0;
 }
 
 int isLinuxISO()
 {
-    return access("/mnt/iso/casper", F_OK) == 0 ||
-           access("/mnt/iso/isolinux", F_OK) == 0 ||
-           access("/mnt/iso/boot", F_OK) == 0;
+    return access(MNT_ISO_PATH "/casper", F_OK) == 0 ||    // Ubuntu/Mint
+           access(MNT_ISO_PATH "/live", F_OK) == 0 ||      // Debian/Kali
+           access(MNT_ISO_PATH "/LiveOS", F_OK) == 0 ||    // Fedora/CentOS/RedHat
+           access(MNT_ISO_PATH "/images", F_OK) == 0 ||    // Fedora
+           access(MNT_ISO_PATH "/arch", F_OK) == 0  ||     // Arch
+           access(MNT_ISO_PATH "/isolinux", F_OK) == 0;    // Old ones
 }
 
 IsoType detectISOType(const char* iso)
@@ -206,25 +186,17 @@ int mountUSB(UsbDevice *dev_data)
     }
     else
     {
-        char *unmount_cmd[] = {"umount", "-f", dev_data->name, NULL}; 
+        char *unmount_cmd[] = {"umount", "-f", dev_data->dev_path, NULL}; 
         if (run(unmount_cmd) != 0)
             return -1;
     }
 
-    char part_path[128];
-
-    if (strstr(dev_data->name, "nvme") != NULL || strstr(dev_data->name, "mmcblk") != NULL) {
-        snprintf(part_path, sizeof(part_path), "%sp1", dev_data->name);
-    } else {
-        snprintf(part_path, sizeof(part_path), "%s1", dev_data->name);
-    }
-
-    char *mount[] = {"mount", "-o", "rw,flush", part_path, MNT_USB_PATH, NULL};
+    char *mount[] = {"mount", "-o", "rw,flush", dev_data->part_path, MNT_USB_PATH, NULL};
     
     int res = run(mount);
     if (res != 0)
     {
-        fprintf(stderr, "Failed to mount USB to %s\n", part_path);
+        fprintf(stderr, "Failed to mount USB to %s\n", dev_data->part_path);
         return -1;
     }
 
@@ -297,8 +269,8 @@ int copyFiles(IsoType type)
 }
 
 void cleanup() {
-    char *u1[] = {"umount", "/mnt/iso", NULL};
-    char *u2[] = {"umount", "/mnt/usb", NULL};
+    char *u1[] = {"umount", MNT_ISO_PATH, NULL};
+    char *u2[] = {"umount", MNT_USB_PATH, NULL};
 
     run(u1);
     run(u2);
@@ -530,7 +502,7 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
         return BEGIN;
     }
 
-    printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->name, dev_data->size, dev_data->model);
+    printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->dev_path, dev_data->size, dev_data->model);
 
     printf("Is it correct? [Y/N]: ");
     int input = getCharInput();
@@ -590,10 +562,27 @@ void printTime()
 int findUsbByName(const char *name, UsbDevice *devOut) {
     UsbDevice list[16];
     int n = getUsbDevices(list, 16);
+    
 
-    for (int i = 0; i < n; i++) {
-        if (strcmp(list[i].name, name) == 0) {
+    for (int i = 0; i < n; i++) 
+    {
+        char full_path[128];
+        snprintf(full_path, sizeof(full_path), "/dev/%s", list[i].name);
+
+        if (strcmp(list[i].name, name) == 0 || strcmp(full_path, name) == 0)
+        {
             *devOut = list[i];
+
+            if (strncmp(devOut->name, "/dev/", 5) == 0)
+                snprintf(devOut->dev_path, sizeof(devOut->dev_path), "%s", devOut->name);
+            else
+                snprintf(devOut->dev_path, sizeof(devOut->dev_path), "/dev/%s", devOut->name);
+
+            if (strstr(devOut->name, "nvme") != NULL || strstr(devOut->name, "mmcblk") != NULL)
+                snprintf(devOut->part_path, sizeof(devOut->part_path), "%sp1", devOut->part_path);
+            else 
+                snprintf(devOut->part_path, sizeof(devOut->part_path), "%s1", devOut->part_path);
+
             return 1;           
         }
     }
@@ -732,6 +721,8 @@ int main(int argc, char* argv[])
                     break;
                 }
 
+                printf("All data will be ERASED from %s\n\n", dev_data.name);
+                printf("Continue?");
                 // create_bootable(argv[1], dev_data);
                 // printf("\nBootable USB creation complete! Press Enter...\n");
                 // getchar();
@@ -748,6 +739,6 @@ int main(int argc, char* argv[])
     
     return 0;
 
-    // TO DO: усі можливі застереження, дебілостійкість, mqueue,є
+    // TO DO: усі можливі застереження, mqueue
     //  роллбек після кожного етапу
 }
