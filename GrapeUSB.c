@@ -36,6 +36,7 @@ typedef enum {
     ISO_LINUX
 } IsoType;
 
+void printTime();
 void flushInput();
 int findUsbByName(const char *name, UsbDevice *devOut);
 
@@ -145,9 +146,17 @@ int formatUSB(UsbDevice *dev_data)
     return 0;
 }
 
+void unmountISO()
+{
+    char *umount_cmd[] = {"umount", MNT_ISO_PATH, NULL};
+    run(umount_cmd);
+}
+
 int mountISO(const char *iso)
 {
-    
+    char *umount_cmd[] = {"umount", "-l", MNT_ISO_PATH, NULL};
+    run(umount_cmd);
+
     if (access(MNT_ISO_PATH, F_OK) != 0)
     {
         if (mkdir(MNT_ISO_PATH, 0755) != 0)
@@ -166,11 +175,6 @@ int mountISO(const char *iso)
     return res;
 }
 
-void unmountISO()
-{
-    char *umount_cmd[] = {"umount", MNT_ISO_PATH, NULL};
-    run(umount_cmd);
-}
 
 int isWindowsISO()
 {
@@ -214,12 +218,6 @@ int mountUSB(UsbDevice *dev_data)
             return -1;
         }
     }
-    else
-    {
-        char *unmount_cmd[] = {"umount", "-f", dev_data->dev_path, NULL}; 
-        if (run(unmount_cmd) != 0)
-            return -1;
-    }
 
     char *mount[] = {"mount", "-o", "rw,flush", dev_data->part_path, MNT_USB_PATH, NULL};
     
@@ -261,6 +259,7 @@ int copyFiles(IsoType type)
     {
         char *copy_base[] = {
             "rsync", "-ah", "--progress", 
+            "--no-perms", "--no-owner", "--no-group",
             "--exclude", "sources/install.wim", 
             "--exclude", "sources/install.esd", 
             MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL
@@ -482,6 +481,17 @@ Screen showDevices(UsbDevice *dev_data)
     {
         int idx = input - '1';
         *dev_data = devs[idx];
+
+        char full_path[128];
+        snprintf(full_path, sizeof(full_path), "/dev/%s", dev_data->name);
+
+        strncpy(dev_data->dev_path, full_path, sizeof(dev_data->dev_path));
+
+        if (strstr(dev_data->name, "nvme") || strstr(dev_data->name, "mmcblk"))
+            snprintf(dev_data->part_path, sizeof(dev_data->part_path), "%sp1", full_path);
+        else
+            snprintf(dev_data->part_path, sizeof(dev_data->part_path), "%s1", full_path);
+
         return DEVICES;
     }
 
@@ -545,7 +555,6 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
     return BEGIN;
 }
 
-
 int fileExists(const char *path)
 {
     struct stat st;
@@ -558,16 +567,76 @@ int isValidISO(const char *iso)
     return run(blkid) == 0;
 }
 
-void create_bootable(const char *iso, UsbDevice *dev) {
+void create_bootable(const char *iso, UsbDevice *dev, IsoType isoType) 
+{
+    if (mountISO(iso) != 0) 
+    {
+        fprintf(stderr, "Critical: Failed to prepare ISO source\n");
+        return;
+    }
+
     unmountUSB(dev);
-    formatUSB(dev);
+    if (formatUSB(dev) != 0) 
+    {
+        unmountISO();
+        return;
+    }
 
-    mountISO(iso);
-    mountUSB(dev);
+    if (mountUSB(dev) != 0) 
+    {
+        unmountISO();
+        return;
+    }
 
-    copyFiles(detectISOType(iso));
+    copyFiles(isoType);
 
     cleanup();
+}
+
+Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
+{
+    if (!hasEnoughSpace(iso, dev_data)) 
+    {
+        printf("\033[1;31mError: Not enough space on %s!\033[0m\n", dev_data->dev_path);
+        printf("Press Enter to go back...");
+        getchar();
+
+        return DEVICES;
+    }
+
+    clearScreen();
+    printf("\033[1;31m!!! WARNING: ALL DATA ON %s WILL BE ERASED !!!\033[0m\n\n", dev_data->dev_path);
+
+    const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
+
+    printf("Selected ISO: %s\n", iso);
+    printf("ISO type: %s\n", isoStr);
+    printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->dev_path, dev_data->size, dev_data->model);
+
+    printf("Are you absolutely sure? [Y/N]: ");
+    
+    int input = getCharInput();
+    
+    if (input == 'y' || input == 'Y') 
+    {
+        printTime();
+        printf("\n>>> Starting the process. This may take a while...\n");
+
+        create_bootable(iso, dev_data, isoType);
+
+        printTime();
+        printf("\n\033[1;32m★ Success! Bootable USB created. ★\033[0m\n");
+        printf("Press Enter to return to menu...");
+        getchar();
+
+        return MENU;
+    } 
+    else 
+    {
+        printf("Operation cancelled.\n");
+        sleep(1);
+        return MENU;
+    }
 }
 
 void flushInput() 
@@ -605,10 +674,10 @@ int findUsbByName(const char *name, UsbDevice *devOut) {
 
             strncpy(devOut->dev_path, full_path, sizeof(devOut->dev_path));
 
-            if (strstr(devOut->name, "nvme") != NULL || strstr(devOut->name, "mmcblk") != NULL)
-                snprintf(devOut->part_path, sizeof(devOut->part_path), "%sp1", devOut->part_path);
-            else 
-                snprintf(devOut->part_path, sizeof(devOut->part_path), "%s1", devOut->part_path);
+            if (strstr(list[i].name, "nvme") || strstr(list[i].name, "mmcblk"))
+                snprintf(devOut->part_path, sizeof(devOut->part_path), "%sp1", full_path);
+            else
+                snprintf(devOut->part_path, sizeof(devOut->part_path), "%s1", full_path);
 
             return 1;           
         }
@@ -745,43 +814,7 @@ int main(int argc, char* argv[])
                     current = DEVICES;
                     break;
                 }
-
-                if (!hasEnoughSpace(argv[1], &dev_data)) 
-                {
-                    printf("\033[1;31mError: Not enough space on %s!\033[0m\n", dev_data.dev_path);
-                    printf("Press Enter to go back...");
-                    getchar();
-                    current = DEVICES;
-                    break;
-                }
-
-                clearScreen();
-                printf("\033[1;31m!!! WARNING: ALL DATA ON %s WILL BE ERASED !!!\033[0m\n\n", dev_data.dev_path);
-                printf("Selected ISO: %s\n", argv[1]);
-                printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data.dev_path, dev_data.size, dev_data.model);
-                printf("Are you absolutely sure? [Y/N]: ");
-                
-                int input = getCharInput();
-                
-                if (input == 'y' || input == 'Y') 
-                {
-                    printTime();
-                    printf("\n>>> Starting the process. This may take a while...\n");
-
-                    create_bootable(argv[1], &dev_data);
-
-                    printTime();
-                    printf("\n\033[1;32m★ Success! Bootable USB created. ★\033[0m\n");
-                    printf("Press Enter to return to menu...");
-                    getchar();
-                    current = MENU;
-                } 
-                else 
-                {
-                    printf("Operation cancelled.\n");
-                    sleep(1);
-                    current = MENU;
-                }
+                current = showStartCreation(&dev_data, argv[1], isoType);
                 break;
             default:
                 current = EXIT;
@@ -793,6 +826,6 @@ int main(int argc, char* argv[])
     
     return 0;
 
-    // TO DO: усі можливі застереження, mqueue
+    // TO DO: mqueue
     //  роллбек після кожного етапу
 }
