@@ -80,6 +80,17 @@ int run(char *const argv[])
     }
 }
 
+void run_or_die(char *const argv[])
+{
+    int res = run(argv);
+
+    if (res != 0)
+    {
+        fprintf(stderr, "Failed: command failed: %s\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+}
+
 int hasEnoughSpace(const char *isoPath, UsbDevice *dev) 
 {
     struct stat st;
@@ -96,7 +107,12 @@ int hasEnoughSpace(const char *isoPath, UsbDevice *dev)
     snprintf(sysfs_path, sizeof(sysfs_path), "/sys/class/block/%s/size", dev->name);
     
     FILE *f = fopen(sysfs_path, "r");
-    if (!f) return 1;
+    
+    if (!f)
+    {
+        perror("Failed to read device size");
+        return 1;
+    }
 
     long long blocks;
     fscanf(f, "%lld", &blocks);
@@ -136,13 +152,7 @@ int formatUSB(UsbDevice *dev_data)
     size_t cmd_count = sizeof(cmds) / sizeof(cmds[0]);
 
     for (int i = 0; i < cmd_count; i++)
-    {
-        if (run(cmds[i]) != 0)        
-        {
-            fprintf(stderr, "Failed to execute command in formatUSB: %s\n", cmds[i][0]);
-            return -1;
-        }
-    }
+        run_or_die(cmds[i]);
 
     return 0;
 }
@@ -169,11 +179,9 @@ int mountISO(const char *iso)
     
     char *mount[] = {"mount", "-o", "loop,ro", (char*)iso, MNT_ISO_PATH, NULL};
 
-    int res = run(mount);
-    if (res != 0)
-        fprintf(stderr, "Failed to mount ISO: %s\n", iso);
+    run_or_die(mount);
     
-    return res;
+    return 0;
 }
 
 
@@ -222,24 +230,22 @@ int mountUSB(UsbDevice *dev_data)
 
     char *mount[] = {"mount", "-o", "rw,flush", dev_data->part_path, MNT_USB_PATH, NULL};
     
-    int res = run(mount);
-    if (res != 0)
-    {
-        fprintf(stderr, "Failed to mount USB to %s\n", dev_data->part_path);
-        return -1;
-    }
+    run_or_die(mount);
 
     return 0;
 }
 
-void splitWimIfNeeded() {
-    char *split[] = {
+void splitWimIfNeeded() 
+{
+    char *split[] = 
+    {
         "wimlib-imagex", "split",
         MNT_ISO_PATH "/sources/install.wim",
         MNT_USB_PATH "/sources/install.swm",
         "3800", NULL
     };
-    run(split);
+
+    run_or_die(split);
 }
 
 int copyFiles(IsoType type) 
@@ -266,8 +272,7 @@ int copyFiles(IsoType type)
             MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL
         };
 
-        if (run(copy_base) != 0) 
-            return -1;
+        run_or_die(copy_base);
 
         char wim_path[256];
         snprintf(wim_path, sizeof(wim_path), "%s/sources/install.wim", MNT_ISO_PATH);
@@ -283,22 +288,26 @@ int copyFiles(IsoType type)
             else
             {
                 char *copy_wim[] = {"cp", wim_path, MNT_USB_PATH "/sources/", NULL};
-                run(copy_wim);
+                run_or_die(copy_wim);
             }
         }
     }
     else
     {
         char *copy_linux[] = {"rsync", "-ah", "--progress", MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL};
-        if (run(copy_linux) != 0) return -1;
+        run_or_die(copy_linux);
+
+        return 0;
     }
 
-    system("sync");
+    char *sync_cmd[] = {"sync", NULL};
+    run(sync_cmd);
 
     return 0;
 }
 
-void cleanup() {
+void cleanup() 
+{
     char *u1[] = {"umount", MNT_ISO_PATH, NULL};
     char *u2[] = {"umount", MNT_USB_PATH, NULL};
 
@@ -415,9 +424,9 @@ int getUsbDevices(UsbDevice *list, int max)
 
             if (strcmp(type, "disk") == 0 && rm == 1 && !is_system) 
             {
-                strncpy(list[count].name, name, sizeof(list[count].name));
-                strncpy(list[count].size, size, sizeof(list[count].size));
-                strncpy(list[count].model, model, sizeof(list[count].model));
+                snprintf(list[count].name, sizeof(list[count].name), "%s", name);
+                snprintf(list[count].size, sizeof(list[count].size), "%s", size);
+                snprintf(list[count].model, sizeof(list[count].model), "%s", model);
                 count++;
             }
             
@@ -566,31 +575,14 @@ int isValidISO(const char *iso)
 
 void create_bootable(const char *iso, UsbDevice *dev, IsoType isoType) 
 {
-    if (mountISO(iso) != 0) 
-    {
-        fprintf(stderr, "Critical: Failed to prepare ISO source\n");
-        return;
-    }
+    mountISO(iso);
 
     unmountUSB(dev);
-    if (formatUSB(dev) != 0) 
-    {
-        unmountISO();
-        return;
-    }
+    formatUSB(dev);
 
-    if (mountUSB(dev) != 0) 
-    {
-        unmountISO();
-        return;
-    }
+    mountUSB(dev);
 
-    if (copyFiles(isoType) != 0)
-    {
-        fprintf(stderr, "Copy failed\n");
-        cleanup();
-        return;
-    }
+    copyFiles(isoType);
 
     cleanup();
 }
