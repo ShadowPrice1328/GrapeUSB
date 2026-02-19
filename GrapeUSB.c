@@ -80,15 +80,14 @@ int run(char *const argv[])
     }
 }
 
-void run_or_die(char *const argv[])
+int run_checked(char *const argv[])
 {
     int res = run(argv);
 
     if (res != 0)
-    {
         fprintf(stderr, "Failed: command failed: %s\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
+
+    return res;
 }
 
 int hasEnoughSpace(const char *isoPath, UsbDevice *dev) 
@@ -111,7 +110,7 @@ int hasEnoughSpace(const char *isoPath, UsbDevice *dev)
     if (!f)
     {
         perror("Failed to read device size");
-        return 1;
+        return 0;
     }
 
     long long blocks;
@@ -152,7 +151,10 @@ int formatUSB(UsbDevice *dev_data)
     size_t cmd_count = sizeof(cmds) / sizeof(cmds[0]);
 
     for (int i = 0; i < cmd_count; i++)
-        run_or_die(cmds[i]);
+    {
+        if (run_checked(cmds[i]) != 0)
+            return -1;
+    }
 
     return 0;
 }
@@ -179,7 +181,8 @@ int mountISO(const char *iso)
     
     char *mount[] = {"mount", "-o", "loop,ro", (char*)iso, MNT_ISO_PATH, NULL};
 
-    run_or_die(mount);
+    if (run_checked(mount) != 0)
+        return -1;
     
     return 0;
 }
@@ -230,12 +233,13 @@ int mountUSB(UsbDevice *dev_data)
 
     char *mount[] = {"mount", "-o", "rw,flush", dev_data->part_path, MNT_USB_PATH, NULL};
     
-    run_or_die(mount);
+    if (run_checked(mount) != 0)
+        return -1;
 
     return 0;
 }
 
-void splitWimIfNeeded() 
+int splitWimIfNeeded() 
 {
     char *split[] = 
     {
@@ -245,7 +249,7 @@ void splitWimIfNeeded()
         "3800", NULL
     };
 
-    run_or_die(split);
+    return run_checked(split);
 }
 
 int copyFiles(IsoType type) 
@@ -272,7 +276,8 @@ int copyFiles(IsoType type)
             MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL
         };
 
-        run_or_die(copy_base);
+        if (run_checked(copy_base) != 0)
+            return -1;
 
         char wim_path[256];
         snprintf(wim_path, sizeof(wim_path), "%s/sources/install.wim", MNT_ISO_PATH);
@@ -283,19 +288,24 @@ int copyFiles(IsoType type)
             stat(wim_path, &st);
             if (st.st_size > 4294967295LL)
             {
-                splitWimIfNeeded(); 
+                if (splitWimIfNeeded() != 0)
+                    return -1;
             }
             else
             {
                 char *copy_wim[] = {"cp", wim_path, MNT_USB_PATH "/sources/", NULL};
-                run_or_die(copy_wim);
+
+                if (run_checked(copy_wim) != 0)
+                    return -1;
             }
         }
     }
     else
     {
         char *copy_linux[] = {"rsync", "-ah", "--progress", MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL};
-        run_or_die(copy_linux);
+        
+        if (run_checked(copy_linux))
+            return -1;
 
         return 0;
     }
@@ -573,18 +583,26 @@ int isValidISO(const char *iso)
     return run(blkid) == 0;
 }
 
-void create_bootable(const char *iso, UsbDevice *dev, IsoType isoType) 
+int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType) 
 {
-    mountISO(iso);
+    if (mountISO(iso) != 0)
+        return -1;
 
-    unmountUSB(dev);
-    formatUSB(dev);
+    if (formatUSB(dev) != 0)
+        goto full_cleanup;
 
-    mountUSB(dev);
+    if (mountUSB(dev) != 0)
+        goto full_cleanup;
 
-    copyFiles(isoType);
+    if (copyFiles(isoType) != 0)
+        goto full_cleanup;
 
     cleanup();
+    return 0;
+
+full_cleanup:
+    cleanup();
+    return -1;
 }
 
 Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
@@ -616,7 +634,13 @@ Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
         printTime();
         printf("\n>>> Starting the process. This may take a while...\n");
 
-        create_bootable(iso, dev_data, isoType);
+        if (create_bootable(iso, dev_data, isoType) != 0)
+        {
+            printf("\n\033[1;31mError occurred during creation!\033[0m\n");
+            printf("Press Enter to return...");
+            flushInput();
+            return MENU;
+        }
 
         printTime();
         printf("\n\033[1;32m★ Success! Bootable USB created. ★\033[0m\n");
