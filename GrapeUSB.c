@@ -9,7 +9,6 @@
 #include <sys/statvfs.h>
 #include "jsmn.h"
 
-#define CMD_COUNT (sizeof(cmds) / sizeof(cmds[0]))
 #define MNT_ISO_PATH "/mnt/iso"
 #define MNT_USB_PATH "/mnt/usb"
 
@@ -134,7 +133,9 @@ int formatUSB(UsbDevice *dev_data)
         {"mkfs.vfat", "-F32", dev_data->part_path, NULL}
     };
 
-    for (int i = 0; i < CMD_COUNT; i++)
+    size_t cmd_count = sizeof(cmds) / sizeof(cmds[0]);
+
+    for (int i = 0; i < cmd_count; i++)
     {
         if (run(cmds[i]) != 0)        
         {
@@ -316,11 +317,7 @@ void checkRoot()
 
 void clearScreen()
 {
-    #ifdef _WIN32
-        system("cls");
-    #else 
-        system("clear");
-    #endif
+    printf("\033c");
 }
 
 int getUsbDevices(UsbDevice *list, int max)
@@ -405,7 +402,7 @@ int getUsbDevices(UsbDevice *list, int max)
                     else
                         rm = 0;
                 }
-                else if (strncmp(mountpoint, "mountpoint", key_len) == 0)
+                else if (strncmp(key, "mountpoint", key_len) == 0)
                     snprintf(mountpoint, sizeof(mountpoint), "%.*s", val_len, val_ptr);
 
                 j += 2; 
@@ -588,7 +585,12 @@ void create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
         return;
     }
 
-    copyFiles(isoType);
+    if (copyFiles(isoType) != 0)
+    {
+        fprintf(stderr, "Copy failed\n");
+        cleanup();
+        return;
+    }
 
     cleanup();
 }
@@ -704,8 +706,6 @@ Screen showMenu()
     if (input == '3') return BEGIN;
 
     printf("\nWrong option. Press Enter to continue...");
-
-    getchar();
     flushInput();
 
     return MENU;
