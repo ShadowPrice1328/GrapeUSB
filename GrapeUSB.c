@@ -304,14 +304,16 @@ int copyFiles(IsoType type)
     {
         char *copy_linux[] = {"rsync", "-ah", "--progress", MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL};
         
-        if (run_checked(copy_linux))
+        if (run_checked(copy_linux) != 0)
             return -1;
 
         return 0;
     }
 
     char *sync_cmd[] = {"sync", NULL};
-    run(sync_cmd);
+    
+    if (run_checked(sync_cmd) != 0)
+        return -1;
 
     return 0;
 }
@@ -585,23 +587,38 @@ int isValidISO(const char *iso)
 
 int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType) 
 {
+    int iso_mounted = 0;
+    int usb_mounted = 0;
+
     if (mountISO(iso) != 0)
-        return -1;
+        goto error;
+    iso_mounted = 1;
 
     if (formatUSB(dev) != 0)
-        goto full_cleanup;
+        goto error;
 
     if (mountUSB(dev) != 0)
-        goto full_cleanup;
+        goto error;
+    usb_mounted = 1;
 
     if (copyFiles(isoType) != 0)
-        goto full_cleanup;
+        goto error;
 
-    cleanup();
+    if (usb_mounted)
+        unmountUSB(dev);
+
+    if (iso_mounted)
+        unmountISO();
+
     return 0;
 
-full_cleanup:
-    cleanup();
+error:
+    if (usb_mounted)
+        unmountUSB(dev);
+
+    if (iso_mounted)
+        unmountISO();
+
     return -1;
 }
 
