@@ -5,10 +5,10 @@
 
 typedef struct {
     char name[64];
-    char size[16];
+    char size[32];
     char model[128];
-    char dev_path[64];
-    char part_path[64];
+    char dev_path[128];
+    char part_path[128];
 } UsbDevice;
 
 int formatUSB(UsbDevice *dev);

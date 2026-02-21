@@ -54,15 +54,7 @@ Screen showDevices(UsbDevice *dev_data)
         int idx = input - '1';
         *dev_data = devs[idx];
 
-        char full_path[128];
-        snprintf(full_path, sizeof(full_path), "/dev/%s", dev_data->name);
-
-        strncpy(dev_data->dev_path, full_path, sizeof(dev_data->dev_path));
-
-        if (strstr(dev_data->name, "nvme") || strstr(dev_data->name, "mmcblk"))
-            snprintf(dev_data->part_path, sizeof(dev_data->part_path), "%sp1", full_path);
-        else
-            snprintf(dev_data->part_path, sizeof(dev_data->part_path), "%s1", full_path);
+        formatPartPath(dev_data);
 
         return DEVICES;
     }

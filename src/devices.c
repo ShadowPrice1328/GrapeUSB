@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "jsmn.h"
+#include "utils.h"
 #include "devices.h"
 
 int hasEnoughSpace(const char *isoPath, UsbDevice *dev) 
@@ -150,10 +151,10 @@ int getUsbDevices(UsbDevice *list, int max)
     return count;
 }
 
-int findUsbByName(const char *name, UsbDevice *devOut) {
+int findUsbByName(const char *name, UsbDevice *devOut) 
+{
     UsbDevice list[16];
     int n = getUsbDevices(list, 16);
-    
 
     for (int i = 0; i < n; i++) 
     {
@@ -164,13 +165,7 @@ int findUsbByName(const char *name, UsbDevice *devOut) {
         {
             *devOut = list[i];
 
-            strncpy(devOut->dev_path, full_path, sizeof(devOut->dev_path));
-
-            if (strstr(list[i].name, "nvme") || strstr(list[i].name, "mmcblk"))
-                snprintf(devOut->part_path, sizeof(devOut->part_path), "%sp1", full_path);
-            else
-                snprintf(devOut->part_path, sizeof(devOut->part_path), "%s1", full_path);
-
+            formatPartPath(devOut);
             return 1;           
         }
     }

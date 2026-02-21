@@ -1,10 +1,10 @@
+#include <ctype.h>
 #include <time.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
-#include "usb.h"
 #include "utils.h"
 #include "exec.h"
 
@@ -127,4 +127,32 @@ int copyFiles(IsoType type)
         return -1;
 
     return 0;
+}
+
+void formatPartPath(UsbDevice *dev)
+{
+    snprintf(dev->dev_path, sizeof(dev->dev_path), "/dev/%s", dev->name);
+
+    size_t len = strlen(dev->name);
+
+    if (len + 2 >= sizeof(dev->part_path))
+    {
+        fprintf(stderr, "Path too long for partition\n");
+        dev->part_path[0] = '\0';
+        return;
+    }
+
+    memcpy(dev->part_path, dev->dev_path, len);
+
+    if (isdigit(dev->name[strlen(dev->name) - 1]))
+    {
+        dev->part_path[len] = 'p';
+        dev->part_path[len + 1] = '1';
+        dev->part_path[len + 2] = '\0';
+    }
+    else
+    {
+        dev->part_path[len] = '1';
+        dev->part_path[len + 1] = '\0';
+    }
 }
