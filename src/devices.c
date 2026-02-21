@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <string.h>
 
 #include "jsmn.h"
 #include "devices.h"

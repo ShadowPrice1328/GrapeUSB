@@ -5,17 +5,38 @@
 #include "exec.h"
 #include "iso.h"
 
-#define MNT_ISO "/mnt/grapeusb_iso"
+#define MNT_ISO_PATH "/mnt/grapeusb_iso"
+
+#include <sys/stat.h>
+#include <unistd.h>
 
 int mountISO(const char *iso)
 {
-    char *cmd[] = {"mount", "-o", "loop", (char*)iso, MNT_ISO, NULL};
+    struct stat st;
+
+    if (stat(MNT_ISO_PATH, &st) != 0)
+    {
+        if (mkdir(MNT_ISO_PATH, 0755) != 0)
+        {
+            perror("Failed to create ISO mount directory");
+            return -1;
+        }
+    }
+
+    char *cmd[] = {
+        "mount",
+        "-o", "loop",
+        (char*)iso,
+        MNT_ISO_PATH,
+        NULL
+    };
+
     return run_checked(cmd);
 }
 
 void unmountISO()
 {
-    char *cmd[] = {"umount", MNT_ISO, NULL};
+    char *cmd[] = {"umount", MNT_ISO_PATH, NULL};
     run(cmd);
 }
 
