@@ -71,20 +71,33 @@ int getUsbDevices(UsbDevice *list, int max)
     close(pipefd[1]);
 
     char buffer[8192];
-    ssize_t len = read(pipefd[0], buffer, sizeof(buffer) - 1);
+    ssize_t total = 0;
+    ssize_t n = 0;
+
+    while((n = read(pipefd[0], buffer + total, sizeof(buffer) - 1 - total)) > 0)
+        total += n;
+
+    if ((unsigned)total >= sizeof(buffer) - 1)
+    {
+        fprintf(stderr, "Output too large, buffer overflow\n");
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        return 0;
+    }
+
     close(pipefd[0]);
     waitpid(pid, NULL, 0);
 
-    if (len <= 0)
+    if (total <= 0)
         return 0;
 
-    buffer[len] = '\0';
+    buffer[total] = '\0';
 
     jsmn_parser parser;
     jsmntok_t tokens[256];
 
     jsmn_init(&parser);
-    int token_count = jsmn_parse(&parser, buffer, len, tokens, 256);
+    int token_count = jsmn_parse(&parser, buffer, total, tokens, 256);
 
     if (token_count < 0)
         return 0;
@@ -110,22 +123,22 @@ int getUsbDevices(UsbDevice *list, int max)
                 int val_len = val->end - val->start;
                 char *val_ptr = &buffer[val->start];
 
-                if (strncmp(key, "name", key_len) == 0)
+                if (key_len == 4 && strncmp(key, "name", key_len) == 0)
                     snprintf(name, sizeof(name), "%.*s", val_len, val_ptr);
-                else if (strncmp(key, "size", key_len) == 0)
+                else if (key_len == 4 && strncmp(key, "size", key_len) == 0)
                     snprintf(size, sizeof(size), "%.*s", val_len, val_ptr);
-                else if (strncmp(key, "model", key_len) == 0)
+                else if (key_len == 5 && strncmp(key, "model", key_len) == 0)
                     snprintf(model, sizeof(model), "%.*s", val_len, val_ptr);
-                else if (strncmp(key, "type", key_len) == 0)
+                else if (key_len == 4 && strncmp(key, "type", key_len) == 0)
                     snprintf(type, sizeof(type), "%.*s", val_len, val_ptr);
-                else if (strncmp(key, "rm", key_len) == 0) 
+                else if (key_len == 2 && strncmp(key, "rm", key_len) == 0) 
                 {
                     if (strncmp(val_ptr, "true", 4) == 0 || strncmp(val_ptr, "1", 1) == 0)
                         rm = 1;
                     else
                         rm = 0;
                 }
-                else if (strncmp(key, "mountpoint", key_len) == 0)
+                else if (key_len == 10 && strncmp(key, "mountpoint", key_len) == 0)
                     snprintf(mountpoint, sizeof(mountpoint), "%.*s", val_len, val_ptr);
 
                 j += 2; 
@@ -133,8 +146,6 @@ int getUsbDevices(UsbDevice *list, int max)
 
             int is_system = (strcmp(mountpoint, "/") == 0 || 
                             strcmp(mountpoint, "/boot") == 0);
-
-            
 
             if (strcmp(type, "disk") == 0 && rm == 1 && !is_system) 
             {

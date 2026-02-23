@@ -64,7 +64,7 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
         goto error;
 
     if (usb_mounted)
-        unmountUSB(dev);
+        unmountUSB();
 
     if (iso_mounted)
         unmountISO();

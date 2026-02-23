@@ -67,6 +67,5 @@ int main(int argc, char* argv[])
     
     return 0;
 
-    // TO DO: mqueue
-    //  роллбек після кожного етапу
+    // TO DO: mqueue devices parsing via fork();
 }

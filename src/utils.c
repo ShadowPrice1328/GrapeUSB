@@ -83,7 +83,7 @@ int copyFiles(IsoType type)
             "rsync", "-ah", "--progress", 
             "--no-perms", "--no-owner", "--no-group",
             "--exclude", "sources/install.wim", 
-            "--exclude", "sources/install.esd", 
+            "--exclude", "sources/install.esd",
             MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL
         };
 

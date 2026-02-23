@@ -75,7 +75,7 @@ The tool provides an interactive terminal interface, automatic USB device detect
 ## Build
 
 ```bash
-gcc GrapeUSB.c -o grapeusb
+make
 ```
 ## Usage
 
