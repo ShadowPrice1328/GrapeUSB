@@ -102,61 +102,93 @@ int getUsbDevices(UsbDevice *list, int max)
     if (token_count < 0)
         return 0;
 
+    int i;
+
+    for (i = 1; i < token_count; i++)
+    {
+        if (tokens[i].type == JSMN_STRING &&
+            (tokens[i].end - tokens[i].start) == 12 &&
+            strncmp(buffer + tokens[i].start, "blockdevices", 12) == 0)
+            {
+                break;
+            }
+    }
+    
+    if (i == token_count)
+        return 0;
+
+    jsmntok_t *arr = &tokens[i + 1];
+
+    if (arr->type != JSMN_ARRAY)
+        return 0;
+
+    int index = i + 2;
     int count = 0;
 
-    for (int i = 0; i < token_count && count < max; i++) 
+    for (int d = 0; d < arr->size && count < max; d++) 
     {
-        if (tokens[i].type == JSMN_OBJECT) 
+        jsmntok_t *obj = &tokens[index];
+        
+        if (obj->type != JSMN_OBJECT)
+            break;
+        
+        char name[64] = "", size[32] = "", model[128] = "", type[32] = "", mountpoint[256] = "";
+        int rm = 0;
+        
+        int obj_size = obj->size; 
+        int j = index + 1;
+
+        for (int k = 0; k < obj_size; k++) 
         {
-            char name[64] = "", size[32] = "", model[128] = "", type[32] = "", mountpoint[256] = "";
-            int rm = 0;
-            
-            int obj_size = tokens[i].size; 
-            int j = i + 1;
-
-            for (int k = 0; k < obj_size; k++) 
+            if (tokens[j].type != JSMN_STRING)
             {
-                int key_len = tokens[j].end - tokens[j].start;
-                char *key = &buffer[tokens[j].start];
-
-                jsmntok_t *val = &tokens[j + 1];
-                int val_len = val->end - val->start;
-                char *val_ptr = &buffer[val->start];
-
-                if (key_len == 4 && strncmp(key, "name", key_len) == 0)
-                    snprintf(name, sizeof(name), "%.*s", val_len, val_ptr);
-                else if (key_len == 4 && strncmp(key, "size", key_len) == 0)
-                    snprintf(size, sizeof(size), "%.*s", val_len, val_ptr);
-                else if (key_len == 5 && strncmp(key, "model", key_len) == 0)
-                    snprintf(model, sizeof(model), "%.*s", val_len, val_ptr);
-                else if (key_len == 4 && strncmp(key, "type", key_len) == 0)
-                    snprintf(type, sizeof(type), "%.*s", val_len, val_ptr);
-                else if (key_len == 2 && strncmp(key, "rm", key_len) == 0) 
-                {
-                    if (strncmp(val_ptr, "true", 4) == 0 || strncmp(val_ptr, "1", 1) == 0)
-                        rm = 1;
-                    else
-                        rm = 0;
-                }
-                else if (key_len == 10 && strncmp(key, "mountpoint", key_len) == 0)
-                    snprintf(mountpoint, sizeof(mountpoint), "%.*s", val_len, val_ptr);
-
-                j += 2; 
+                j += 2;
+                continue;
             }
 
-            int is_system = (strcmp(mountpoint, "/") == 0 || 
-                            strcmp(mountpoint, "/boot") == 0);
+            int key_len = tokens[j].end - tokens[j].start;
+            char *key = &buffer[tokens[j].start];
 
-            if (strcmp(type, "disk") == 0 && rm == 1 && !is_system) 
+            jsmntok_t *val = &tokens[j + 1];
+            int val_len = val->end - val->start;
+            char *val_ptr = &buffer[val->start];
+
+            if (key_len == 4 && strncmp(key, "name", key_len) == 0)
+                snprintf(name, sizeof(name), "%.*s", val_len, val_ptr);
+            else if (key_len == 4 && strncmp(key, "size", key_len) == 0)
+                snprintf(size, sizeof(size), "%.*s", val_len, val_ptr);
+            else if (key_len == 5 && strncmp(key, "model", key_len) == 0)
+                snprintf(model, sizeof(model), "%.*s", val_len, val_ptr);
+            else if (key_len == 4 && strncmp(key, "type", key_len) == 0)
+                snprintf(type, sizeof(type), "%.*s", val_len, val_ptr);
+            else if (key_len == 2 && strncmp(key, "rm", key_len) == 0) 
             {
-                snprintf(list[count].name, sizeof(list[count].name), "%s", name);
-                snprintf(list[count].size, sizeof(list[count].size), "%s", size);
-                snprintf(list[count].model, sizeof(list[count].model), "%s", model);
-                count++;
+                if (val_len == 4 && strncmp(val_ptr, "true", 4) == 0)
+                    rm = 1;
+                else if (val_len == 1 && strncmp(val_ptr, "1", 1) == 0)
+                    rm = 1;
+                else
+                    rm = 0;
             }
-            
-            i = j - 1;
+
+            else if (key_len == 10 && strncmp(key, "mountpoint", key_len) == 0)
+                snprintf(mountpoint, sizeof(mountpoint), "%.*s", val_len, val_ptr);
+
+            j += 2; 
         }
+
+        int is_system = (strcmp(mountpoint, "/") == 0 || 
+                        strcmp(mountpoint, "/boot") == 0);
+
+        if (strcmp(type, "disk") == 0 && rm == 1 && !is_system) 
+        {
+            snprintf(list[count].name, sizeof(list[count].name), "%s", name);
+            snprintf(list[count].size, sizeof(list[count].size), "%s", size);
+            snprintf(list[count].model, sizeof(list[count].model), "%s", model);
+            count++;
+        }
+        
+        index = j;
     }
 
     return count;

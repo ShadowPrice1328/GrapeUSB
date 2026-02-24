@@ -66,6 +66,4 @@ int main(int argc, char* argv[])
     printf("Thank you, goodbye =)\n");
     
     return 0;
-
-    // TO DO: mqueue devices parsing via fork();
 }
