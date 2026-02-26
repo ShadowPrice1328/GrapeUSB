@@ -20,6 +20,8 @@ int main(int argc, char* argv[])
     if (validateISOArgument(argv[1], &isoType) == 1)
         return 1;
 
+    checkDependencies(isoType);
+
     UsbDevice dev_data = {0};
     char *dev = NULL;
 
@@ -67,3 +69,5 @@ int main(int argc, char* argv[])
     
     return 0;
 }
+
+//TO DO: перевірка на встановлені пакети

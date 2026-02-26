@@ -68,13 +68,14 @@ The tool provides an interactive terminal interface, automatic USB device detect
 - lsblk  
 - mount  
 - cp  
-- wimlib-imagex (Windows only)  
+- wimlib-imagex (Windows .iso only)  
 
 ---
 
 ## Build
 
 ```bash
+make clean
 make
 ```
 ## Usage

@@ -12,5 +12,7 @@ int getCharInput();
 int splitWimIfNeeded();
 int copyFiles(IsoType type);
 void formatPartPath(UsbDevice *dev);
+int commandExists(const char *cmd);
+int checkDependencies(IsoType iso);
 
 #endif

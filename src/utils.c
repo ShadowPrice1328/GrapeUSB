@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <string.h>
 #include <time.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -7,6 +8,7 @@
 
 #include "utils.h"
 #include "exec.h"
+#include "iso.h"
 
 #define MNT_USB_PATH "/mnt/grapeusb_usb"
 #define MNT_ISO_PATH "/mnt/grapeusb_iso"
@@ -23,6 +25,73 @@ void checkRoot()
         fprintf(stderr, "Run as root!\n");
         exit(EXIT_FAILURE);
     }
+}
+
+int commandExists(const char *cmd)
+{
+    char *path = getenv("PATH");
+    if (!path) return 0;
+
+    char *path_copy = strdup(path);
+    char *dir = strtok(path_copy, ":");
+
+    while (dir)
+    {
+        char full[512];
+        snprintf(full, sizeof(full), "%s/%s", dir, cmd);
+
+        if (access(full, X_OK) == 0)
+        {
+            free(path_copy);
+            return 1;
+        }
+
+        dir = strtok(NULL, ":");
+    }
+
+    free(path_copy);
+    return 0;
+}
+
+int checkDependencies(IsoType iso)
+{
+    const char *common_deps[] = {
+        "lsblk",
+        "mkfs.fat",
+        "mount",
+        "umount",
+        "rsync",
+        "sync",
+        NULL
+    };
+
+    const char *windows_deps[] = {
+        "wimlib-imagex",
+        NULL
+    };
+
+    for (int i = 0; common_deps[i] != NULL; i++)
+    {
+        if (!commandExists(common_deps[i]))
+        {
+            fprintf(stderr, "Missing dependency: %s\n", common_deps[i]);
+            return 0;
+        }
+    }
+
+    if (iso == ISO_WINDOWS)
+    {
+        for (int i = 0; windows_deps[i] != NULL; i++)
+        {
+            if (!commandExists(windows_deps[i]))
+            {
+                fprintf(stderr, "Missing dependency (Windows .iso only): %s\n", windows_deps[i]);
+                return 0;
+            }
+        }
+    }
+
+    return 1;
 }
 
 void printTime() 
