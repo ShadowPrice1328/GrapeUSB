@@ -178,12 +178,32 @@ Screen showMainInfo()
     printf("  ★ ABOUT ★  \n");
     printf("\033[0m\n");
 
+    printf("  █████████                                          █████  █████  █████████  ███████████\n"); 
+    printf(" ███░░░░░███                                        ░░███  ░░███  ███░░░░░███░░███░░░░░███\n");
+    printf("███     ░░░  ████████   ██████   ████████   ██████   ░███   ░███ ░███    ░░░  ░███    ░███\n");
+    printf("░███         ░░███░░███ ░░░░░███ ░░███░░███ ███░░███ ░███   ░███ ░░█████████  ░██████████ \n");
+    printf("░███    █████ ░███ ░░░   ███████  ░███ ░███░███████  ░███   ░███  ░░░░░░░░███ ░███░░░░░███\n");
+    printf("░░███  ░░███  ░███      ███░░███  ░███ ░███░███░░░   ░███   ░███  ███    ░███ ░███    ░███\n");
+    printf(" ░░█████████  █████    ░░████████ ░███████ ░░██████  ░░████████  ░░█████████  ███████████ \n");
+    printf("  ░░░░░░░░░  ░░░░░      ░░░░░░░░  ░███░░░   ░░░░░░    ░░░░░░░░    ░░░░░░░░░  ░░░░░░░░░░░  \n");
+    printf("                                  ░███                                                    \n");
+    printf("                                  █████                                                   \n");
+    printf("                                 ░░░░░                                                    \n\n");
     printf("===================================================\n");
     printf(" Welcome to the \"GrapeUSB\" Utility!\n");
     printf("===================================================\n\n");
 
-    printf("This utility helps you with creation of a bootable USB flashdrive from a .iso file.\n\n");
-    printf(" [Z] Back to Menu\n");
+    printf("This utility helps you with creation of a bootable USB flashdrive from a .iso file.\n");
+    printf("Plug your USB flashdrive in -> Select it in DEVICES -> Proceed to BEGIN\n");
+    printf("Do not unplug it during the process, for your own sake! Even though I've done everything to prevent an unpleasant outcomes =]\n");
+    printf("That's it.\n");
+
+    printf("\n──────────────────────────────\n");
+    printf("  With love,\n");
+    printf("  \tShadowPrice\n");
+    printf("──────────────────────────────\n");
+
+    printf("\n [Z] Back to Menu\n");
     printf("\nEnter choice: ");
 
     int input = getCharInput();
