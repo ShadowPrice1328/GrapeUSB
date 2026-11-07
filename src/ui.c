@@ -120,15 +120,6 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
 
 Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
 {
-    if (!hasEnoughSpace(iso, dev_data)) 
-    {
-        printf("\033[1;31mError: Not enough space on %s!\033[0m\n", dev_data->dev_path);
-        printf("Press Enter to go back...");
-        getchar();
-
-        return DEVICES;
-    }
-
     clearScreen();
     printf("\033[1;31m!!! WARNING: ALL DATA ON %s WILL BE ERASED !!!\033[0m\n\n", dev_data->dev_path);
 

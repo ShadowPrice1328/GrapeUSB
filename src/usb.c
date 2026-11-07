@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <ctype.h>
+#include <sys/statvfs.h>
 
 #include "exec.h"
 #include "usb.h"
@@ -182,6 +183,42 @@ static int copyISO(const char *iso)
     return run_checked(sync_cmd);
 }
 
+
+static int hasEnoughSpaceOnMountedUSB(const char *iso)
+{
+    struct stat iso_stat;
+    struct statvfs fs_stat;
+
+    if (stat(iso, &iso_stat) != 0 || !S_ISREG(iso_stat.st_mode))
+    {
+        perror("Cannot access ISO file");
+        return -1;
+    }
+
+    if (statvfs(MNT_USB_PATH, &fs_stat) != 0)
+    {
+        perror("Cannot read USB filesystem information");
+        return -1;
+    }
+
+    unsigned long long available =
+        (unsigned long long)fs_stat.f_bavail * fs_stat.f_frsize;
+
+    unsigned long long required = (unsigned long long)iso_stat.st_size;
+
+    printf("ISO size: %llu bytes\n", required);
+    printf("Available space: %llu bytes\n", available);
+
+    if (required > available)
+    {
+        fprintf(stderr, "Not enough space on Ventoy partition\n");
+        return 0;
+    }
+
+    return 1;
+}
+
+
 int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
 {
     (void)isoType;
@@ -218,6 +255,14 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
 
     if (mountUSB(dev) != 0)
         return -1;
+
+    int space_ok = hasEnoughSpaceOnMountedUSB(iso);
+
+    if (space_ok != 1)
+    {
+        unmountUSB();
+        return -1;
+    }
 
     int result = copyISO(iso);
 
