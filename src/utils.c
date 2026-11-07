@@ -10,9 +10,6 @@
 #include "exec.h"
 #include "iso.h"
 
-#define MNT_USB_PATH "/mnt/grapeusb_usb"
-#define MNT_ISO_PATH "/mnt/grapeusb_iso"
-
 int fileExists(const char *path)
 {
     struct stat st;
@@ -55,39 +52,26 @@ int commandExists(const char *cmd)
 
 int checkDependencies(IsoType iso)
 {
-    const char *common_deps[] = {
+    (void)iso;
+
+    const char *deps[] = {
+        "bash",
         "lsblk",
-        "mkfs.fat",
+        "udevadm",
         "mount",
         "umount",
         "rsync",
         "sync",
+        "findmnt",
         NULL
     };
 
-    const char *windows_deps[] = {
-        "wimlib-imagex",
-        NULL
-    };
-
-    for (int i = 0; common_deps[i] != NULL; i++)
+    for (int i = 0; deps[i] != NULL; i++)
     {
-        if (!commandExists(common_deps[i]))
+        if (!commandExists(deps[i]))
         {
-            fprintf(stderr, "Missing dependency: %s\n", common_deps[i]);
+            fprintf(stderr, "Missing dependency: %s\n", deps[i]);
             return 0;
-        }
-    }
-
-    if (iso == ISO_WINDOWS)
-    {
-        for (int i = 0; windows_deps[i] != NULL; i++)
-        {
-            if (!commandExists(windows_deps[i]))
-            {
-                fprintf(stderr, "Missing dependency (Windows .iso only): %s\n", windows_deps[i]);
-                return 0;
-            }
         }
     }
 
@@ -117,106 +101,4 @@ int getCharInput()
     int c = getchar();
     flushInput();
     return c;
-}
-
-int splitWimIfNeeded() 
-{
-    char *split[] = 
-    {
-        "wimlib-imagex", "split",
-        MNT_ISO_PATH "/sources/install.wim",
-        MNT_USB_PATH "/sources/install.swm",
-        "3800", NULL
-    };
-
-    return run_checked(split);
-}
-
-int copyFiles(IsoType type) 
-{
-    if (access(MNT_ISO_PATH, R_OK) != 0)
-    {
-        fprintf(stderr, "ISO not mounted or not readable\n");
-        return -1;
-    }
-
-    if (access(MNT_USB_PATH, R_OK) != 0)
-    {
-        fprintf(stderr, "USB not mounted or not readable\n");
-        return -1;
-    }
-
-    if (type == ISO_WINDOWS)
-    {
-        char *copy_base[] = {
-            "rsync", "-ah", "--progress", 
-            "--no-perms", "--no-owner", "--no-group",
-            "--exclude", "sources/install.wim", 
-            "--exclude", "sources/install.esd",
-            MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL
-        };
-
-        if (run_checked(copy_base) != 0)
-            return -1;
-
-        char wim_path[256];
-        snprintf(wim_path, sizeof(wim_path), "%s/sources/install.wim", MNT_ISO_PATH);
-
-        if (access(wim_path, F_OK) == 0)
-        {
-            struct stat st;
-            stat(wim_path, &st);
-            if (st.st_size > 4294967295LL)
-            {
-                if (splitWimIfNeeded() != 0)
-                    return -1;
-            }
-            else
-            {
-                char *copy_wim[] = {"cp", wim_path, MNT_USB_PATH "/sources/", NULL};
-
-                if (run_checked(copy_wim) != 0)
-                    return -1;
-            }
-        }
-    }
-    else
-    {
-        char *copy_linux[] = {"rsync", "-ah", "--progress", MNT_ISO_PATH "/", MNT_USB_PATH "/", NULL};
-        
-        if (run_checked(copy_linux) != 0)
-            return -1;
-
-        return 0;
-    }
-
-    char *sync_cmd[] = {"sync", NULL};
-    
-    if (run_checked(sync_cmd) != 0)
-        return -1;
-
-    return 0;
-}
-
-void formatPartPath(UsbDevice *dev)
-{
-    snprintf(dev->dev_path, sizeof(dev->dev_path), "/dev/%s", dev->name);
-    
-    size_t name_len = strlen(dev->name);
-    
-    if (name_len == 0 || name_len + 3 >= sizeof(dev->part_path))
-    {
-        fprintf(stderr, "Path too long for partition\n");
-        dev->part_path[0] = '\0';
-        return;
-    }
-
-    if (isdigit((unsigned char)dev->name[name_len - 1]))
-    {
-        snprintf(dev->part_path, sizeof(dev->part_path), "/dev/%sp1", dev->name);
-    }
-    else
-    {
-        snprintf(dev->part_path, sizeof(dev->part_path), "/dev/%s1", dev->name);
-    }
 }

@@ -7,6 +7,8 @@
 #include <sys/wait.h>
 #include <ctype.h>
 #include <sys/statvfs.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 #include "exec.h"
 #include "usb.h"
@@ -19,6 +21,9 @@
 
 static int readLsblk(const char *device, char *buffer, size_t size)
 {
+    if (device == NULL || buffer == NULL || size < 2)
+        return -1;
+
     int pipefd[2];
 
     if (pipe(pipefd) == -1)
@@ -39,9 +44,14 @@ static int readLsblk(const char *device, char *buffer, size_t size)
 
     if (pid == 0)
     {
-        dup2(pipefd[1], STDOUT_FILENO);
-
         close(pipefd[0]);
+
+        if (dup2(pipefd[1], STDOUT_FILENO) == -1)
+        {
+            perror("dup2");
+            _exit(127);
+        }
+
         close(pipefd[1]);
 
         execlp("lsblk", "lsblk",
@@ -55,27 +65,55 @@ static int readLsblk(const char *device, char *buffer, size_t size)
     close(pipefd[1]);
 
     size_t total = 0;
-    ssize_t n;
+    int read_error = 0;
 
-    while ((n = read(pipefd[0], buffer + total,
-                     size - total - 1)) > 0)
+    while (total < size - 1)
     {
-        total += (size_t)n;
+        ssize_t n = read(pipefd[0], buffer + total,
+                         size - 1 - total);
 
-        if (total >= size - 1)
+        if (n > 0)
         {
-            fprintf(stderr, "lsblk output too large\n");
-            close(pipefd[0]);
-            waitpid(pid, NULL, 0);
-            return -1;
+            total += (size_t)n;
+            continue;
         }
+
+        if (n == 0)
+            break;
+
+        if (errno == EINTR)
+            continue;
+
+        perror("read");
+        read_error = 1;
+        break;
     }
 
     close(pipefd[0]);
 
     int status;
-    if (waitpid(pid, &status, 0) == -1 ||
-        !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    pid_t result;
+
+    do {
+        result = waitpid(pid, &status, 0);
+    } while (result == -1 && errno == EINTR);
+
+    if (result == -1)
+    {
+        perror("waitpid");
+        return -1;
+    }
+
+    if (read_error)
+        return -1;
+
+    if (total == size - 1)
+    {
+        fprintf(stderr, "lsblk output too large\n");
+        return -1;
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
     {
         fprintf(stderr, "lsblk failed\n");
         return -1;
@@ -85,11 +123,13 @@ static int readLsblk(const char *device, char *buffer, size_t size)
     return 0;
 }
 
-
 int detectVentoyDataPartition(UsbDevice *dev)
 {
-    if (dev == NULL)
+    if (dev == NULL || dev->name[0] == '\0' || dev->dev_path[0] == '\0')
+    {
+        fprintf(stderr, "Invalid USB device\n");
         return -1;
+    }
 
     char output[4096];
 
@@ -166,9 +206,20 @@ int mountUSB(UsbDevice *dev)
         return -1;
     }
 
-    if (mkdir(MNT_USB_PATH, 0755) != 0 && access(MNT_USB_PATH, F_OK) != 0)
+    struct stat st;
+
+    if (mkdir(MNT_USB_PATH, 0755) != 0)
     {
-        perror("Cannot create USB mount directory");
+        if (errno != EEXIST)
+        {
+            perror("Cannot create USB mount directory");
+            return -1;
+        }
+    }
+
+    if (lstat(MNT_USB_PATH, &st) != 0 || !S_ISDIR(st.st_mode))
+    {
+        fprintf(stderr, "Mount path is not a directory\n");
         return -1;
     }
 
@@ -340,7 +391,9 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
 
     if (space_ok != 1)
     {
-        unmountUSB();
+        if (unmountUSB() != 0)
+            fprintf(stderr, "WARNING: USB partition remains mounted!\n");
+
         return -1;
     }
 

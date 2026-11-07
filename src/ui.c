@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 
 #include "utils.h"
 #include "ui.h"
@@ -16,8 +17,8 @@ Screen showDevices(UsbDevice *dev_data)
 
     printf("\033[47;30m  ★ DEVICES ★  \n\033[0m\n");
 
-    UsbDevice devs[16];
-    int n = getUsbDevices(devs, 16);
+    UsbDevice devs[9];
+    int n = getUsbDevices(devs, 9);
 
     if (n == 0) 
     {
@@ -54,8 +55,6 @@ Screen showDevices(UsbDevice *dev_data)
         int idx = input - '1';
         *dev_data = devs[idx];
 
-        formatPartPath(dev_data);
-
         return DEVICES;
     }
 
@@ -71,7 +70,13 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
 
     printf("\033[47;30m  ★ CREATE BOOTABLE USB FLASHDRIVE ★  \n\n\033[0m");
 
-    const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
+    const char *isoStr = "Unknown / Other";
+
+    if (isoType == ISO_WINDOWS)
+        isoStr = "Windows";
+    else if (isoType == ISO_LINUX)
+        isoStr = "Linux";
+
     printf("ISO Type: %s\n", isoStr);
 
     if (dev_data == NULL || dev_data->name[0] == '\0')
@@ -86,20 +91,6 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
         int input = getCharInput();
 
         if (input == '1') return DEVICES;
-        if (input == 'z' || input == 'Z') return MENU;
-
-        return BEGIN;
-    }
-
-    if (isoType == ISO_UNKNOWN)
-    {
-        printf("No valid ISO detected!\n");
-        printf("Please provide a valid Windows or Linux ISO.\n\n");
-        printf(" [Z] Back to Menu\n");
-
-        printf("\nEnter choice: ");
-        int input = getCharInput();
-
         if (input == 'z' || input == 'Z') return MENU;
 
         return BEGIN;
@@ -121,9 +112,19 @@ Screen showBeginCreation(UsbDevice *dev_data, IsoType isoType)
 Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
 {
     clearScreen();
-    printf("\033[1;31m!!! WARNING: ALL DATA ON %s WILL BE ERASED !!!\033[0m\n\n", dev_data->dev_path);
 
-    const char* isoStr = (isoType == ISO_WINDOWS) ? "Windows" : "Linux";
+    printf("\033[1;31m");
+    printf("WARNING: Installing Ventoy will erase all data on %s.\n",
+           dev_data->dev_path);
+    printf("If Ventoy is already installed, it will be reused.\n");
+    printf("\033[0m\n");
+
+    const char *isoStr = "Unknown / Other";
+
+    if (isoType == ISO_WINDOWS)
+        isoStr = "Windows";
+    else if (isoType == ISO_LINUX)
+        isoStr = "Linux";
 
     printf("Selected ISO: %s\n", iso);
     printf("ISO type: %s\n", isoStr);
@@ -142,7 +143,7 @@ Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
         {
             printf("\n\033[1;31mError occurred during creation!\033[0m\n");
             printf("Press Enter to return...");
-            flushInput();
+            getchar();
             return MENU;
         }
 
@@ -224,7 +225,7 @@ Screen showMenu()
     if (input == '3') return BEGIN;
 
     printf("\nWrong option. Press Enter to continue...");
-    flushInput();
+    getchar();
 
     return MENU;
 }

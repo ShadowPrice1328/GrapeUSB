@@ -2,16 +2,12 @@
 #define UTILS_H
 
 #include "iso.h"
-#include "devices.h"
 
 int fileExists(const char *path);
-void checkRoot();
-void printTime();
-void flushInput();
-int getCharInput();
-int splitWimIfNeeded();
-int copyFiles(IsoType type);
-void formatPartPath(UsbDevice *dev);
+void checkRoot(void);
+void printTime(void);
+void flushInput(void);
+int getCharInput(void);
 int commandExists(const char *cmd);
 int checkDependencies(IsoType iso);
 

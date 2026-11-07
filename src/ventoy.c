@@ -2,10 +2,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <ctype.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include "devices.h"
 
 #include "ventoy.h"
 #include "exec.h"
@@ -126,16 +124,38 @@ int installVentoy(UsbDevice *dev)
         return -1;
     }
 
-    if (!confirmVentoyInstallation(dev))
+    UsbDevice current_dev = {0};
+
+    if (!findUsbByName(dev->name, &current_dev))
+    {
+        fprintf(stderr, "Selected USB device is no longer available\n");
+        return -1;
+    }
+
+    if (strcmp(current_dev.model, dev->model) != 0 ||
+        strcmp(current_dev.size, dev->size) != 0)
+    {
+        fprintf(stderr, "USB device identity has changed!\n");
+        return -1;
+    }
+
+    if (validateUsbDeviceForVentoy(&current_dev) != 0)
+    {
+        fprintf(stderr, "USB device validation failed\n");
+        return -1;
+    }
+
+    if (!confirmVentoyInstallation(&current_dev))
         return -1;
 
-    printf("Installing Ventoy on %s...\n", device_path);
+    printf("Installing Ventoy on %s...\n", current_dev.dev_path);
 
     char *cmd[] = {
         "bash",
         VENTOY_SCRIPT_PATH,
         "-i",
-        device_path,
+        "-S",
+        current_dev.dev_path,
         NULL
     };
 
