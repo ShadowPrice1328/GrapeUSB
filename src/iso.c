@@ -9,17 +9,9 @@
 
 IsoType detectISOType(const char *iso)
 {
-    const char *filename = strrchr(iso, '/');
-    filename = filename ? filename + 1 : iso;
-
-    if (strcasestr(filename, "windows") != NULL ||
-        strcasestr(filename, "win11") != NULL ||
-        strcasestr(filename, "win10") != NULL)
-    {
+    if (strstr(iso, "win") || strstr(iso, "Win"))
         return ISO_WINDOWS;
-    }
-
-    return ISO_UNKNOWN;
+    return ISO_LINUX;
 }
 
 int validateISOArgument(const char *iso, IsoType *type)

@@ -130,6 +130,7 @@ Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
     printf("ISO type: %s\n", isoStr);
     printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->dev_path, dev_data->size, dev_data->model);
 
+    printf("Old .iso files from your USB drive will be removed!\n");
     printf("Are you absolutely sure? [Y/N]: ");
     
     int input = getCharInput();

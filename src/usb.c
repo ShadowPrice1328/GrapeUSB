@@ -1,201 +1,171 @@
 
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <ctype.h>
 #include <sys/statvfs.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
+#include <errno.h>
+#include <stdio.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <limits.h>
 
 #include "exec.h"
 #include "usb.h"
 #include "iso.h"
-#include "utils.h"
 #include "ventoy.h"
 #include "devices.h"
 
 #define MNT_USB_PATH "/mnt/grapeusb_usb"
 
-static int readLsblk(const char *device, char *buffer, size_t size)
+int unmountDevicePartitions(const char *device)
 {
-    if (device == NULL || buffer == NULL || size < 2)
+    char command[256];
+
+    snprintf(command, sizeof(command),
+             "lsblk -nrpo MOUNTPOINT %s", device);
+
+    FILE *fp = popen(command, "r");
+    if (!fp)
         return -1;
 
-    int pipefd[2];
+    char line[512];
+    char mounts[16][256];
+    int count = 0;
 
-    if (pipe(pipefd) == -1)
+    while (fgets(line, sizeof(line), fp) && count < 16)
     {
-        perror("pipe");
+        line[strcspn(line, "\n")] = '\0';
+
+        if (line[0] != '\0')
+            snprintf(mounts[count++], sizeof(mounts[0]), "%s", line);
+    }
+
+    int status = pclose(fp);
+    if (status != 0)
+        return -1;
+
+    for (int i = count - 1; i >= 0; i--)
+    {
+        char *argv[] = {"umount", mounts[i], NULL};
+        if (run_checked(argv) != 0)
+            return -1;
+
+        printf("Unmounted: %s\n", mounts[i]);
+    }
+
+    return 0;
+}
+
+static int deleteOldISOs(void)
+{
+    const char *mount_path = "/mnt/grapeusb_usb";
+
+    DIR *dir = opendir(mount_path);
+    if (dir == NULL)
+    {
+        perror("Cannot open Ventoy partition");
         return -1;
     }
 
-    pid_t pid = fork();
+    struct dirent *entry;
+    int deleted = 0;
 
-    if (pid < 0)
+    while ((entry = readdir(dir)) != NULL)
     {
-        perror("fork");
-        close(pipefd[0]);
-        close(pipefd[1]);
-        return -1;
-    }
+        const char *ext = strrchr(entry->d_name, '.');
 
-    if (pid == 0)
-    {
-        close(pipefd[0]);
-
-        if (dup2(pipefd[1], STDOUT_FILENO) == -1)
-        {
-            perror("dup2");
-            _exit(127);
-        }
-
-        close(pipefd[1]);
-
-        execlp("lsblk", "lsblk",
-               "-nrpo", "NAME,TYPE,FSTYPE,LABEL,PKNAME,PARTN",
-               device, (char *)NULL);
-
-        perror("lsblk");
-        _exit(127);
-    }
-
-    close(pipefd[1]);
-
-    size_t total = 0;
-    int read_error = 0;
-
-    while (total < size - 1)
-    {
-        ssize_t n = read(pipefd[0], buffer + total,
-                         size - 1 - total);
-
-        if (n > 0)
-        {
-            total += (size_t)n;
-            continue;
-        }
-
-        if (n == 0)
-            break;
-
-        if (errno == EINTR)
+        if (ext == NULL || strcasecmp(ext, ".iso") != 0)
             continue;
 
-        perror("read");
-        read_error = 1;
-        break;
+        char path[PATH_MAX];
+
+        int len = snprintf(path, sizeof(path), "%s/%s",
+                           mount_path, entry->d_name);
+
+        if (len < 0 || (size_t)len >= sizeof(path))
+            continue;
+
+        struct stat st;
+
+        if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode))
+            continue;
+
+        if (unlink(path) != 0)
+        {
+            perror("Cannot delete old ISO");
+            closedir(dir);
+            return -1;
+        }
+
+        printf("Deleted: %s\n", entry->d_name);
+        deleted++;
     }
 
-    close(pipefd[0]);
+    closedir(dir);
 
-    int status;
-    pid_t result;
-
-    do {
-        result = waitpid(pid, &status, 0);
-    } while (result == -1 && errno == EINTR);
-
-    if (result == -1)
-    {
-        perror("waitpid");
-        return -1;
-    }
-
-    if (read_error)
-        return -1;
-
-    if (total == size - 1)
-    {
-        fprintf(stderr, "lsblk output too large\n");
-        return -1;
-    }
-
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-    {
-        fprintf(stderr, "lsblk failed\n");
-        return -1;
-    }
-
-    buffer[total] = '\0';
+    printf("Deleted %d old ISO file(s).\n", deleted);
     return 0;
 }
 
 int detectVentoyDataPartition(UsbDevice *dev)
 {
-    if (dev == NULL || dev->name[0] == '\0' || dev->dev_path[0] == '\0')
-    {
-        fprintf(stderr, "Invalid USB device\n");
-        return -1;
-    }
+    if (dev == NULL || dev->dev_path[0] == '\0')
+        return 0;
 
-    char output[4096];
+    char command[256];
 
-    if (readLsblk(dev->dev_path, output, sizeof(output)) != 0)
-        return -1;
+    snprintf(command, sizeof(command),
+             "lsblk -nrpo NAME,TYPE,FSTYPE,LABEL,PKNAME %s",
+             dev->dev_path);
 
-    int ventoy_partition_found = 0;
-    int efi_partition_found = 0;
+    FILE *fp = popen(command, "r");
+    if (fp == NULL)
+        return 0;
 
-    char data_partition[128] = "";
+    char line[512];
+    int found = 0;
 
-    char *line = strtok(output, "\n");
-
-    while (line != NULL)
+    while (fgets(line, sizeof(line), fp) != NULL)
     {
         char path[128] = "";
         char type[32] = "";
         char fstype[32] = "";
         char label[64] = "";
         char parent[64] = "";
-        int partition_number = 0;
 
-        int fields = sscanf(
-            line,
-            "%127s %31s %31s %63s %63s %d",
-            path, type, fstype, label, parent, &partition_number
-        );
+        if (sscanf(line, "%127s %31s %31s %63s %63s",
+                   path, type, fstype, label, parent) != 5)
+            continue;
 
-        if (fields == 6 &&
-            strcmp(type, "part") == 0 &&
-            strcmp(parent, dev->name) == 0)
+        if (strcmp(type, "part") == 0 &&
+            strcmp(fstype, "exfat") == 0 &&
+            strcmp(label, "Ventoy") == 0 &&
+            strcmp(parent, dev->dev_path) == 0)
         {
-            if (strcmp(label, "Ventoy") == 0 &&
-                strcmp(fstype, "exfat") == 0 &&
-                partition_number == 1)
-            {
-                snprintf(data_partition, sizeof(data_partition),
-                         "%s", path);
+            snprintf(dev->part_path, sizeof(dev->part_path),
+                     "%s", path);
 
-                ventoy_partition_found = 1;
-            }
-
-            if (strcmp(label, "VTOYEFI") == 0 &&
-                partition_number == 2)
-            {
-                efi_partition_found = 1;
-            }
+            found = 1;
+            break;
         }
-
-        line = strtok(NULL, "\n");
     }
 
-    if (ventoy_partition_found && efi_partition_found)
-    {
-        snprintf(dev->part_path, sizeof(dev->part_path),
-                 "%s", data_partition);
+    int status = pclose(fp);
 
-        printf("Ventoy installation detected: %s\n",
-               dev->part_path);
+    if (status != 0)
+        return 0;
 
-        return 1;
-    }
-
-    dev->part_path[0] = '\0';
-
-    return 0;
+    return found;
 }
 
 int mountUSB(UsbDevice *dev)
@@ -233,15 +203,17 @@ int mountUSB(UsbDevice *dev)
     return run_checked(cmd);
 }
 
-int unmountUSB(void)
+int unmountUSB()
 {
-    char *cmd[] = {
-        "umount",
-        MNT_USB_PATH,
-        NULL
-    };
+    if (umount2("/mnt/grapeusb_usb", 0) == 0)
+        return 0;
 
-    return run_checked(cmd);
+    // Розділ уже розмонтований — це нормально.
+    if (errno == EINVAL || errno == ENOENT)
+        return 0;
+
+    perror("Failed to unmount USB");
+    return -1;
 }
 
 
@@ -345,6 +317,18 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
         printf("\nExisting Ventoy installation detected.\n");
         printf("Reusing existing Ventoy partition.\n");
 
+        if (unmountUSB() != 0)
+        {
+            fprintf(stderr, "Cannot unmount previous USB mount.\n");
+            return 0;
+        }
+
+        if (unmountDevicePartitions(dev->dev_path) != 0)
+        {
+            fprintf(stderr, "Failed to unmount USB partitions.\n");
+            return 0;
+        }
+
         if (validateUsbDeviceForVentoy(dev) != 0)
         {
             fprintf(stderr, "USB device validation failed\n");
@@ -385,6 +369,13 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
     {
         fprintf(stderr, "Cannot mount Ventoy partition\n");
         return -1;
+    }
+
+    if (deleteOldISOs() != 0)
+    {
+        unmountUSB();
+        fprintf(stderr, "Failed to remove old ISO files.\n");
+        return 0;
     }
 
     int space_ok = hasEnoughSpaceOnMountedUSB(iso);

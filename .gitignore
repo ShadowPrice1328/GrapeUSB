@@ -3,6 +3,22 @@ compile_commands.json
 
 .cache/
 
+# Ventoy runtime files
+vendor/ventoy/log.txt
+vendor/ventoy/tool/*/log.txt
+
+# Extracted Ventoy binaries
+vendor/ventoy/tool/*/Plugson
+vendor/ventoy/tool/*/V2DServer
+vendor/ventoy/tool/*/ash
+vendor/ventoy/tool/*/hexdump
+vendor/ventoy/tool/*/mkexfatfs
+vendor/ventoy/tool/*/mkexfatfs_static
+vendor/ventoy/tool/*/mount.exfat-fuse
+vendor/ventoy/tool/*/vlnk
+vendor/ventoy/tool/*/vtoycli
+vendor/ventoy/tool/*/vtoygpt
+
 *.d
 
 *.o

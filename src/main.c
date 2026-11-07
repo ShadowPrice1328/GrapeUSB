@@ -11,10 +11,10 @@ int main(int argc, char *argv[])
 {
     checkRoot();
 
-    if (argc != 3)
+    if (argc != 2)
     {
         fprintf(stderr,
-                "Usage: %s path/to/.iso /dev/sdX (or \"0\" if not known)\n",
+                "Usage: %s path/to/.iso\n",
                 argv[0]);
         return EXIT_FAILURE;
     }
@@ -28,15 +28,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
 
     UsbDevice dev_data = {0};
-
-    if (strcmp(argv[2], "0") != 0)
-    {
-        if (!findUsbByName(argv[2], &dev_data))
-        {
-            fprintf(stderr, "USB device not found: %s\n", argv[2]);
-            return EXIT_FAILURE;
-        }
-    }
 
     Screen current = MENU;
 

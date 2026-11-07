@@ -161,7 +161,7 @@ int getUsbDevices(UsbDevice *list, int max)
         int obj_size = obj->size; 
         int j = index + 1;
 
-        for (int k = 0; k < obj_size / 2; k++)
+        for (int k = 0; k < obj_size; k++)
         {
             if (tokens[j].type != JSMN_STRING)
             {
@@ -172,7 +172,8 @@ int getUsbDevices(UsbDevice *list, int max)
             int key_len = tokens[j].end - tokens[j].start;
             char *key = &buffer[tokens[j].start];
 
-            if (j + 1 >= token_count || j + 1 >= index + 1 + obj_size)
+            if (j + 1 >= token_count ||
+                j + 1 >= index + 1 + obj_size * 2)
                 return 0;
 
             jsmntok_t *val = &tokens[j + 1];
@@ -195,7 +196,7 @@ int getUsbDevices(UsbDevice *list, int max)
 
             j += 2; 
         }
-
+        
         int is_system = (strcmp(mountpoint, "/") == 0 || 
                         strcmp(mountpoint, "/boot") == 0);
 
