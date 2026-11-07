@@ -3,12 +3,63 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <ctype.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include "devices.h"
 
 #include "ventoy.h"
 #include "exec.h"
 #include "devices.h"
 
 #define VENTOY_SCRIPT_PATH "vendor/ventoy/Ventoy2Disk.sh"
+
+
+static int confirmVentoyInstallation(const UsbDevice *dev)
+{
+    char confirmation[128];
+
+    printf("\n");
+    printf("========================================\n");
+    printf("       WARNING: DESTRUCTIVE ACTION\n");
+    printf("========================================\n\n");
+
+    printf("ALL DATA ON THIS DEVICE WILL BE ERASED!\n\n");
+
+    printf("Device: %s\n", dev->dev_path);
+    printf("Model:  %s\n", dev->model);
+    printf("Size:   %s\n\n", dev->size);
+
+    printf("To continue, type exactly: %s\n> ", dev->dev_path);
+    fflush(stdout);
+
+    if (fgets(confirmation, sizeof(confirmation), stdin) == NULL)
+    {
+        fprintf(stderr, "Cannot read confirmation\n");
+        return 0;
+    }
+
+    if (strchr(confirmation, '\n') == NULL &&
+        !feof(stdin))
+    {
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF)
+            ;
+
+        fprintf(stderr, "Confirmation too long\n");
+        return 0;
+    }
+
+    confirmation[strcspn(confirmation, "\r\n")] = '\0';
+
+    if (strcmp(confirmation, dev->dev_path) != 0)
+    {
+        printf("\nInstallation cancelled.\n");
+        return 0;
+    }
+
+    printf("\nConfirmation accepted.\n");
+    return 1;
+}
 
 static int isValidDeviceName(const char *name)
 {
@@ -74,6 +125,9 @@ int installVentoy(UsbDevice *dev)
         fprintf(stderr, "USB device validation failed\n");
         return -1;
     }
+
+    if (!confirmVentoyInstallation(dev))
+        return -1;
 
     printf("Installing Ventoy on %s...\n", device_path);
 
