@@ -71,7 +71,7 @@ int installVentoy(UsbDevice *dev)
     printf("Installing Ventoy on %s...\n", device_path);
 
     char *cmd[] = {
-        "sh",
+        "bash",
         VENTOY_SCRIPT_PATH,
         "-i",
         device_path,

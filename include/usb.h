@@ -11,9 +11,9 @@ typedef struct {
     char part_path[128];
 } UsbDevice;
 
-int formatUSB(UsbDevice *dev);
 int mountUSB(UsbDevice *dev);
 int unmountUSB();
 int create_bootable(const char *iso, UsbDevice *dev, IsoType type);
+int findVentoyDataPartition(UsbDevice *dev);
 
 #endif
