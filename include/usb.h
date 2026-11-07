@@ -14,6 +14,6 @@ typedef struct {
 int mountUSB(UsbDevice *dev);
 int unmountUSB();
 int create_bootable(const char *iso, UsbDevice *dev, IsoType type);
-int findVentoyDataPartition(UsbDevice *dev);
+int detectVentoyDataPartition(UsbDevice *dev);
 
 #endif

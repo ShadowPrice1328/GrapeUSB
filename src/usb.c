@@ -84,7 +84,8 @@ static int readLsblk(const char *device, char *buffer, size_t size)
     return 0;
 }
 
-int findVentoyDataPartition(UsbDevice *dev)
+
+int detectVentoyDataPartition(UsbDevice *dev)
 {
     if (dev == NULL)
         return -1;
@@ -99,36 +100,33 @@ int findVentoyDataPartition(UsbDevice *dev)
     while (line != NULL)
     {
         char path[128] = "";
-        char type[32] = "";
-        char filesystem[32] = "";
         char label[64] = "";
         char parent[64] = "";
 
-        int fields = sscanf(line, "%127s %31s %31s %63s %63s",
-                            path, type, filesystem, label, parent);
+        int fields = sscanf(line, "%127s %63s %63s",
+                            path, label, parent);
 
-        if (fields == 5 &&
-            strcmp(type, "part") == 0 &&
+        if (fields == 3 &&
             strcmp(label, "Ventoy") == 0 &&
             strcmp(parent, dev->name) == 0)
         {
             snprintf(dev->part_path, sizeof(dev->part_path),
                      "%s", path);
 
-            printf("Ventoy data partition found: %s (%s)\n",
-                   dev->part_path, filesystem);
+            printf("Ventoy data partition found: %s\n",
+                   dev->part_path);
 
-            return 0;
+            return 1;
         }
 
         line = strtok(NULL, "\n");
     }
 
-    fprintf(stderr, "Ventoy data partition not found on %s\n",
-            dev->dev_path);
+    dev->part_path[0] = '\0';
 
-    return -1;
+    return 0;
 }
+
 
 int mountUSB(UsbDevice *dev)
 {
@@ -165,24 +163,40 @@ int unmountUSB(void)
     return run(cmd);
 }
 
+
 static int copyISO(const char *iso)
 {
+    printf("\nCopying ISO to Ventoy partition...\n\n");
+    fflush(stdout);
+
     char *cmd[] = {
-        "cp",
+        "rsync",
+        "--info=progress2",
+        "--human-readable",
         "--",
         (char *)iso,
-        MNT_USB_PATH,
+        MNT_USB_PATH "/",
         NULL
     };
 
     if (run_checked(cmd) != 0)
+    {
+        fprintf(stderr, "ISO copy failed\n");
         return -1;
+    }
+
+    printf("\nSynchronizing USB storage...\n");
 
     char *sync_cmd[] = {"sync", NULL};
 
-    return run_checked(sync_cmd);
-}
+    if (run_checked(sync_cmd) != 0)
+    {
+        fprintf(stderr, "Synchronization failed\n");
+        return -1;
+    }
 
+    return 0;
+}
 
 static int hasEnoughSpaceOnMountedUSB(const char *iso)
 {
@@ -233,28 +247,64 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
 
     if (stat(iso, &st) != 0 || !S_ISREG(st.st_mode))
     {
-        fprintf(stderr, "ISO file does not exist or is not a regular file\n");
+        fprintf(stderr, "Invalid ISO file\n");
         return -1;
     }
 
-    printf("Installing Ventoy on %s...\n", dev->dev_path);
+    int ventoy_status = detectVentoyDataPartition(dev);
 
-    if (installVentoy(dev) != 0)
+    if (ventoy_status < 0)
     {
-        fprintf(stderr, "Ventoy installation failed\n");
+        fprintf(stderr, "Cannot inspect USB device\n");
         return -1;
     }
 
-    char *settle_cmd[] = {"udevadm", "settle", NULL};
+    if (ventoy_status == 1)
+    {
+        printf("\nExisting Ventoy installation detected.\n");
+        printf("Reusing existing Ventoy partition.\n");
 
-    if (run_checked(settle_cmd) != 0)
-        return -1;
+        if (validateUsbDeviceForVentoy(dev) != 0)
+        {
+            fprintf(stderr, "USB device validation failed\n");
+            return -1;
+        }
+    }
+    else
+    {
+        printf("\nVentoy is not installed.\n");
+        printf("Installing Ventoy...\n");
 
-    if (findVentoyDataPartition(dev) != 0)
-        return -1;
+        if (installVentoy(dev) != 0)
+        {
+            fprintf(stderr, "Ventoy installation failed\n");
+            return -1;
+        }
+
+        char *settle_cmd[] = {
+            "udevadm",
+            "settle",
+            NULL
+        };
+
+        if (run_checked(settle_cmd) != 0)
+            return -1;
+
+        ventoy_status = detectVentoyDataPartition(dev);
+
+        if (ventoy_status != 1)
+        {
+            fprintf(stderr,
+                    "Ventoy data partition not found after installation\n");
+            return -1;
+        }
+    }
 
     if (mountUSB(dev) != 0)
+    {
+        fprintf(stderr, "Cannot mount Ventoy partition\n");
         return -1;
+    }
 
     int space_ok = hasEnoughSpaceOnMountedUSB(iso);
 
