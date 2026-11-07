@@ -13,6 +13,7 @@
 #include "iso.h"
 #include "utils.h"
 #include "ventoy.h"
+#include "devices.h"
 
 #define MNT_USB_PATH "/mnt/grapeusb_usb"
 
@@ -44,7 +45,7 @@ static int readLsblk(const char *device, char *buffer, size_t size)
         close(pipefd[1]);
 
         execlp("lsblk", "lsblk",
-               "-nrpo", "NAME,TYPE,FSTYPE,LABEL,PKNAME",
+               "-nrpo", "NAME,TYPE,FSTYPE,LABEL,PKNAME,PARTN",
                device, (char *)NULL);
 
         perror("lsblk");
@@ -95,38 +96,67 @@ int detectVentoyDataPartition(UsbDevice *dev)
     if (readLsblk(dev->dev_path, output, sizeof(output)) != 0)
         return -1;
 
+    int ventoy_partition_found = 0;
+    int efi_partition_found = 0;
+
+    char data_partition[128] = "";
+
     char *line = strtok(output, "\n");
 
     while (line != NULL)
     {
         char path[128] = "";
+        char type[32] = "";
+        char fstype[32] = "";
         char label[64] = "";
         char parent[64] = "";
+        int partition_number = 0;
 
-        int fields = sscanf(line, "%127s %63s %63s",
-                            path, label, parent);
+        int fields = sscanf(
+            line,
+            "%127s %31s %31s %63s %63s %d",
+            path, type, fstype, label, parent, &partition_number
+        );
 
-        if (fields == 3 &&
-            strcmp(label, "Ventoy") == 0 &&
+        if (fields == 6 &&
+            strcmp(type, "part") == 0 &&
             strcmp(parent, dev->name) == 0)
         {
-            snprintf(dev->part_path, sizeof(dev->part_path),
-                     "%s", path);
+            if (strcmp(label, "Ventoy") == 0 &&
+                strcmp(fstype, "exfat") == 0 &&
+                partition_number == 1)
+            {
+                snprintf(data_partition, sizeof(data_partition),
+                         "%s", path);
 
-            printf("Ventoy data partition found: %s\n",
-                   dev->part_path);
+                ventoy_partition_found = 1;
+            }
 
-            return 1;
+            if (strcmp(label, "VTOYEFI") == 0 &&
+                partition_number == 2)
+            {
+                efi_partition_found = 1;
+            }
         }
 
         line = strtok(NULL, "\n");
+    }
+
+    if (ventoy_partition_found && efi_partition_found)
+    {
+        snprintf(dev->part_path, sizeof(dev->part_path),
+                 "%s", data_partition);
+
+        printf("Ventoy installation detected: %s\n",
+               dev->part_path);
+
+        return 1;
     }
 
     dev->part_path[0] = '\0';
 
     return 0;
 }
-
 
 int mountUSB(UsbDevice *dev)
 {
@@ -160,7 +190,7 @@ int unmountUSB(void)
         NULL
     };
 
-    return run(cmd);
+    return run_checked(cmd);
 }
 
 
