@@ -10,5 +10,6 @@ void flushInput(void);
 int getCharInput(void);
 int commandExists(const char *cmd);
 int checkDependencies(IsoType iso);
+int askUser(const char *message);
 
 #endif

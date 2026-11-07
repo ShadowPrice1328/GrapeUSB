@@ -78,6 +78,19 @@ int checkDependencies(IsoType iso)
     return 1;
 }
 
+int askUser(const char *message)
+{
+    char answer[16];
+
+    printf("%s [y/N]: ", message);
+    fflush(stdout);
+
+    if (fgets(answer, sizeof(answer), stdin) == NULL)
+        return 0;
+
+    return answer[0] == 'y' || answer[0] == 'Y';
+}
+
 void printTime() 
 {
     time_t t = time(NULL);
