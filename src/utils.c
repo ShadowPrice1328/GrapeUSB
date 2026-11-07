@@ -201,27 +201,22 @@ int copyFiles(IsoType type)
 void formatPartPath(UsbDevice *dev)
 {
     snprintf(dev->dev_path, sizeof(dev->dev_path), "/dev/%s", dev->name);
-
-    size_t len = strlen(dev->name);
-
-    if (len + 2 >= sizeof(dev->part_path))
+    
+    size_t name_len = strlen(dev->name);
+    
+    if (name_len == 0 || name_len + 3 >= sizeof(dev->part_path))
     {
         fprintf(stderr, "Path too long for partition\n");
         dev->part_path[0] = '\0';
         return;
     }
 
-    memcpy(dev->part_path, dev->dev_path, len);
-
-    if (isdigit(dev->name[strlen(dev->name) - 1]))
+    if (isdigit((unsigned char)dev->name[name_len - 1]))
     {
-        dev->part_path[len] = 'p';
-        dev->part_path[len + 1] = '1';
-        dev->part_path[len + 2] = '\0';
+        snprintf(dev->part_path, sizeof(dev->part_path), "/dev/%sp1", dev->name);
     }
     else
     {
-        dev->part_path[len] = '1';
-        dev->part_path[len + 1] = '\0';
+        snprintf(dev->part_path, sizeof(dev->part_path), "/dev/%s1", dev->name);
     }
 }
