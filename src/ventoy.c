@@ -6,6 +6,7 @@
 
 #include "ventoy.h"
 #include "exec.h"
+#include "devices.h"
 
 #define VENTOY_SCRIPT_PATH "vendor/ventoy/Ventoy2Disk.sh"
 
@@ -65,6 +66,12 @@ int installVentoy(UsbDevice *dev)
     {
         fprintf(stderr, "Ventoy installer not found: %s\n",
                 VENTOY_SCRIPT_PATH);
+        return -1;
+    }
+
+    if (validateUsbDeviceForVentoy(dev) != 0)
+    {
+        fprintf(stderr, "USB device validation failed\n");
         return -1;
     }
 

@@ -7,5 +7,6 @@
 int getUsbDevices(UsbDevice *list, int max);
 int findUsbByName(const char *name, UsbDevice *devOut);
 int hasEnoughSpace(const char *isoPath, UsbDevice *dev);
+int validateUsbDeviceForVentoy(UsbDevice *dev);
 
 #endif

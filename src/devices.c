@@ -4,6 +4,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <string.h>
+#include <ctype.h>
+#include <limits.h>
 
 #include "jsmn.h"
 #include "utils.h"
@@ -212,5 +214,230 @@ int findUsbByName(const char *name, UsbDevice *devOut)
             return 1;           
         }
     }
+    return 0;
+}
+
+static int readCommandOutput(const char *command, char *buffer, size_t size)
+{
+    FILE *fp = popen(command, "r");
+
+    if (fp == NULL)
+    {
+        perror("popen");
+        return -1;
+    }
+
+    size_t used = 0;
+
+    while (fgets(buffer + used, (int)(size - used), fp) != NULL)
+    {
+        used = strlen(buffer);
+
+        if (used >= size - 1)
+        {
+            pclose(fp);
+            fprintf(stderr, "Command output too large\n");
+            return -1;
+        }
+    }
+
+    int status = pclose(fp);
+
+    if (status != 0)
+        return -1;
+
+    return 0;
+}
+
+static int isSafeDeviceName(const char *name)
+{
+    if (name == NULL || name[0] == '\0')
+        return 0;
+
+    for (int i = 0; name[i] != '\0'; i++)
+    {
+        if (!isalnum((unsigned char)name[i]))
+            return 0;
+    }
+
+    return 1;
+}
+
+static int isValidDevicePath(const char *name, const char *path)
+{
+    char expected[128];
+
+    snprintf(expected, sizeof(expected), "/dev/%s", name);
+
+    return strcmp(expected, path) == 0;
+}
+
+int validateUsbDeviceForVentoy(UsbDevice *dev)
+{
+    if (dev == NULL ||
+        !isSafeDeviceName(dev->name) ||
+        !isValidDevicePath(dev->name, dev->dev_path))
+    {
+        fprintf(stderr, "Invalid USB device information\n");
+        return -1;
+    }
+
+    struct stat st;
+
+    if (stat(dev->dev_path, &st) != 0 || !S_ISBLK(st.st_mode))
+    {
+        fprintf(stderr, "%s is not a valid block device\n",
+                dev->dev_path);
+        return -1;
+    }
+
+    char command[512];
+    char output[4096];
+
+    snprintf(command, sizeof(command),
+             "lsblk -dnro TRAN %s", dev->dev_path);
+
+    if (readCommandOutput(command, output, sizeof(output)) != 0)
+    {
+        fprintf(stderr, "Cannot determine device transport\n");
+        return -1;
+    }
+
+    output[strcspn(output, "\r\n")] = '\0';
+
+    if (strcmp(output, "usb") != 0)
+    {
+        fprintf(stderr, "Device is not connected through USB: %s\n",
+                dev->dev_path);
+        return -1;
+    }
+
+    snprintf(command, sizeof(command),
+             "lsblk -nrpo MOUNTPOINTS %s", dev->dev_path);
+
+    if (readCommandOutput(command, output, sizeof(output)) != 0)
+    {
+        fprintf(stderr, "Cannot check mounted partitions\n");
+        return -1;
+    }
+
+    for (char *p = output; *p != '\0'; p++)
+    {
+        if (!isspace((unsigned char)*p))
+        {
+            fprintf(stderr,
+                    "Device or one of its partitions is mounted:\n%s",
+                    output);
+            return -1;
+        }
+    }
+
+    if (readCommandOutput("findmnt -nro SOURCE /",
+                          output, sizeof(output)) != 0)
+    {
+        fprintf(stderr, "Cannot determine root filesystem source\n");
+        return -1;
+    }
+
+    output[strcspn(output, "\r\n")] = '\0';
+
+    if (strncmp(output, "/dev/", 5) == 0)
+    {
+        for (char *p = output; *p != '\0'; p++)
+        {
+            if (!isalnum((unsigned char)*p) &&
+                *p != '/' && *p != '-' && *p != '_')
+            {
+                fprintf(stderr, "Unexpected root device path\n");
+                return -1;
+            }
+        }
+
+        char *cmd[] = {
+            "lsblk",
+            "-s",
+            "-nrpo",
+            "NAME",
+            output,
+            NULL
+        };
+
+        int pipefd[2];
+
+        if (pipe(pipefd) == -1)
+        {
+            perror("pipe");
+            return -1;
+        }
+
+        pid_t pid = fork();
+
+        if (pid < 0)
+        {
+            perror("fork");
+            close(pipefd[0]);
+            close(pipefd[1]);
+            return -1;
+        }
+
+        if (pid == 0)
+        {
+            dup2(pipefd[1], STDOUT_FILENO);
+            close(pipefd[0]);
+            close(pipefd[1]);
+
+            execvp(cmd[0], cmd);
+            _exit(127);
+        }
+
+        close(pipefd[1]);
+
+        size_t total = 0;
+        ssize_t n;
+
+        while ((n = read(pipefd[0], output + total,
+                         sizeof(output) - total - 1)) > 0)
+        {
+            total += (size_t)n;
+
+            if (total >= sizeof(output) - 1)
+            {
+                close(pipefd[0]);
+                waitpid(pid, NULL, 0);
+                fprintf(stderr, "lsblk output too large\n");
+                return -1;
+            }
+        }
+
+        close(pipefd[0]);
+
+        int status;
+
+        if (waitpid(pid, &status, 0) == -1 ||
+            !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        {
+            fprintf(stderr, "Cannot determine system disk\n");
+            return -1;
+        }
+
+        output[total] = '\0';
+
+        char *line = strtok(output, "\n");
+
+        while (line != NULL)
+        {
+            if (strcmp(line, dev->dev_path) == 0)
+            {
+                fprintf(stderr,
+                        "Refusing to modify the system disk: %s\n",
+                        dev->dev_path);
+                return -1;
+            }
+
+            line = strtok(NULL, "\n");
+        }
+    }
+
+    printf("USB device validation passed: %s\n", dev->dev_path);
     return 0;
 }
