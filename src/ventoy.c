@@ -21,7 +21,8 @@ static int confirmVentoyInstallation(const UsbDevice *dev)
     printf("       WARNING: DESTRUCTIVE ACTION\n");
     printf("========================================\n\n");
 
-    printf("ALL DATA ON THIS DEVICE WILL BE ERASED!\n\n");
+    printf("Installing Ventoy will erase ALL existing data\n");
+    printf("and recreate the partition table on this device.\n\n");
 
     printf("Device: %s\n", dev->dev_path);
     printf("Model:  %s\n", dev->model);

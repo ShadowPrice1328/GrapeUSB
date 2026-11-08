@@ -130,7 +130,6 @@ Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
     printf("ISO type: %s\n", isoStr);
     printf("Selected flashdrive: %s (%s, %s)\n\n", dev_data->dev_path, dev_data->size, dev_data->model);
 
-    printf("Old .iso files from your USB drive will be removed!\n");
     printf("Are you absolutely sure? [Y/N]: ");
     
     int input = getCharInput();
@@ -140,7 +139,20 @@ Screen showStartCreation(UsbDevice *dev_data, const char* iso, IsoType isoType)
         printTime();
         printf("\n>>> Starting the process. This may take a while...\n");
 
-        if (create_bootable(iso, dev_data, isoType) != 0)
+        int result = create_bootable(iso, dev_data, isoType);
+
+        if (result == CREATE_BACK)
+            return MENU;
+
+        if (result == CREATE_CANCELLED)
+        {
+            printf("\nOperation cancelled.\n");
+            printf("Press Enter to return...");
+            getchar();
+            return MENU;
+        }
+
+        if (result == CREATE_ERROR)
         {
             printf("\n\033[1;31mError occurred during creation!\033[0m\n");
             printf("Press Enter to return...");

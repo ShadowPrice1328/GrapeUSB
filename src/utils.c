@@ -82,7 +82,7 @@ int askUser(const char *message)
 {
     char answer[16];
 
-    printf("%s [y/N]: ", message);
+    printf("%s [Y/N]: ", message);
     fflush(stdout);
 
     if (fgets(answer, sizeof(answer), stdin) == NULL)

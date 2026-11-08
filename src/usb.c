@@ -98,7 +98,7 @@ static unsigned long long getAvailableSpace(void)
     return (unsigned long long)fs.f_bavail * fs.f_frsize;
 }
 
-static int prepareVentoySpace(const char *iso_path)
+static SpacePrepareResult prepareVentoySpace(const char *iso_path)
 {
     struct stat iso_stat;
 
@@ -164,67 +164,64 @@ static int prepareVentoySpace(const char *iso_path)
     if (available >= required)
     {
         if (iso_count == 0)
-            return 1;
+            return SPACE_PREPARE_READY;
 
-        printf("\nThere is enough space for the new ISO.\n");
+        printf("\nThere is enough space for the new ISO.\n\n");
 
-        printf("1. Add new ISO and keep existing images.\n");
-        printf("2. Delete all existing ISO images and replace them.\n");
+        printf(" [1] Add new ISO and keep existing images\n");
+        printf(" [2] Delete all existing ISO images and replace them\n");
+        printf(" [Z] Back to Menu\n");
 
-        char choice[16];
+        printf("\nEnter choice: ");
 
-        printf("Choose [1/2]: ");
-        fflush(stdout);
+        int choice = getCharInput();
 
-        if (fgets(choice, sizeof(choice), stdin) == NULL)
-            return 0;
-
-        if (choice[0] == '1')
-            return 1;
-
-        if (choice[0] == '2')
+        switch (choice)
         {
-            if (!askUser("Delete ALL existing ISO images?"))
-                return 0;
+            case '1':
+                return SPACE_PREPARE_READY;
 
-            if (deleteOldISOs() != 0)
-                return 0;
+            case '2':
+                if (!askUser("Delete ALL existing ISO images?"))
+                    return SPACE_PREPARE_CANCELLED;
 
-            return 1;
+                if (deleteOldISOs() != 0)
+                    return SPACE_PREPARE_ERROR;
+
+                return SPACE_PREPARE_READY;
+
+            case 'z':
+            case 'Z':
+                return SPACE_PREPARE_BACK;
+
+            default:
+                printf("\nInvalid option. Try again.\n");
+                return prepareVentoySpace(iso_path);
         }
-
-        printf("Invalid choice.\n");
-        return 0;
     }
 
     printf("\nNot enough space for the new ISO.\n");
-
-    if (iso_count == 0)
-    {
-        printf("No existing ISO images can be deleted.\n");
-        return 0;
-    }
-
     printf("All existing ISO images must be deleted to continue.\n");
 
+    if (iso_count == 0)
+        return SPACE_PREPARE_ERROR;
+
     if (!askUser("Delete ALL existing ISO images and continue?"))
-    {
-        printf("Operation cancelled.\n");
-        return 0;
-    }
+        return SPACE_PREPARE_CANCELLED;
 
     if (deleteOldISOs() != 0)
-        return 0;
+        return SPACE_PREPARE_ERROR;
 
     available = getAvailableSpace();
 
     if (available < required)
     {
-        printf("Still not enough space after deleting old images.\n");
-        return 0;
+        fprintf(stderr,
+                "Not enough space even after deleting existing ISO images.\n");
+        return SPACE_PREPARE_ERROR;
     }
 
-    return 1;
+    return SPACE_PREPARE_READY;
 }
 
 int unmountDevicePartitions(const char *device)
@@ -412,7 +409,7 @@ static int copyISO(const char *iso)
     return 0;
 }
 
-int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
+CreateResult create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
 {
     (void)isoType;
 
@@ -445,14 +442,14 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
 
         if (unmountUSB() != 0)
         {
-            fprintf(stderr, "Cannot unmount previous USB mount.\n");
-            return 0;
+            fprintf(stderr, "Warning: could not unmount USB partition.\n");
+            return CREATE_ERROR;
         }
 
         if (unmountDevicePartitions(dev->dev_path) != 0)
         {
             fprintf(stderr, "Failed to unmount USB partitions.\n");
-            return 0;
+            return CREATE_ERROR;
         }
 
         if (validateUsbDeviceForVentoy(dev) != 0)
@@ -497,11 +494,28 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
         return -1;
     }
 
-    if (!prepareVentoySpace(iso))
+    SpacePrepareResult space_status = prepareVentoySpace(iso);
+
+    if (space_status != SPACE_PREPARE_READY)
     {
-        unmountUSB();
-        fprintf(stderr, "Operation cancelled or insufficient space.\n");
-        return -1;
+        if (unmountUSB() != 0)
+        {
+            fprintf(stderr, "Warning: could not unmount USB partition.\n");
+            return CREATE_ERROR;
+        }
+
+        switch (space_status)
+        {
+            case SPACE_PREPARE_BACK:
+                return CREATE_BACK;
+
+            case SPACE_PREPARE_CANCELLED:
+                return CREATE_CANCELLED;
+
+            case SPACE_PREPARE_ERROR:
+            default:
+                return CREATE_ERROR;
+        }
     }
 
     int result = copyISO(iso);
@@ -509,8 +523,8 @@ int create_bootable(const char *iso, UsbDevice *dev, IsoType isoType)
     if (unmountUSB() != 0)
     {
         fprintf(stderr, "Warning: could not unmount USB partition\n");
-        return -1;
+        return CREATE_ERROR;
     }
 
-    return result;
+    return result == 0 ? CREATE_SUCCESS : CREATE_ERROR;
 }
