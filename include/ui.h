@@ -2,6 +2,7 @@
 #define UI_H
 
 #include "usb.h"
+#include <string.h>
 
 typedef enum {
     MENU,

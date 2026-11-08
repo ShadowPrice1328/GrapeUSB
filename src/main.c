@@ -1,37 +1,33 @@
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include "utils.h"
 #include "devices.h"
 #include "ui.h"
 #include "iso.h"
 
-int main(int argc, char* argv[]) 
+int main(int argc, char *argv[])
 {
     checkRoot();
 
-    if (argc != 3)
+    if (argc != 2)
     {
-        printf("Usage: %s path/to/.iso /dev/sdX (or \"0\" if not known)\n", argv[0]);
-        return 1;
+        fprintf(stderr,
+                "Usage: %s path/to/.iso\n",
+                argv[0]);
+        return EXIT_FAILURE;
     }
 
     IsoType isoType = ISO_UNKNOWN;
 
-    if (validateISOArgument(argv[1], &isoType) == 1)
-        return 1;
+    if (validateISOArgument(argv[1], &isoType) != 0)
+        return EXIT_FAILURE;
 
-    checkDependencies(isoType);
+    if (!checkDependencies(isoType))
+        return EXIT_FAILURE;
 
     UsbDevice dev_data = {0};
-    char *dev = NULL;
-
-    if (strcmp(argv[2], "0") != 0) 
-    {
-        dev = argv[2];
-
-        if (!findUsbByName(dev, &dev_data))
-            dev = NULL;
-    }
 
     Screen current = MENU;
 
@@ -42,32 +38,37 @@ int main(int argc, char* argv[])
             case MENU:
                 current = showMenu();
                 break;
+
             case MAIN_INFO:
                 current = showMainInfo();
                 break;
+
             case DEVICES:
                 current = showDevices(&dev_data);
                 break;
+
             case BEGIN:
                 current = showBeginCreation(&dev_data, isoType);
                 break;
+
             case START:
-                if (dev_data.name[0] == '\0') 
+                if (dev_data.name[0] == '\0')
                 {
                     current = DEVICES;
                     break;
                 }
+
                 current = showStartCreation(&dev_data, argv[1], isoType);
                 break;
+
             default:
                 current = EXIT;
+                break;
         }
     }
 
     clearScreen();
     printf("Thank you, goodbye =)\n");
-    
-    return 0;
-}
 
-//TO DO: перевірка на встановлені пакети
+    return EXIT_SUCCESS;
+}
